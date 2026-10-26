@@ -1,1 +1,3 @@
-# file-manager
+---
+sdk: docker
+---
