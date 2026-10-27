@@ -9,7 +9,7 @@ from flask import Flask
 TOKEN = "8847975926:AAGmu4pfRfMa11Ow4hCw0kFURveuFI2YYPw"
 bot = telebot.TeleBot(TOKEN)
 
-# Твой фиксированный ID
+# Твой фиксированный ID администратора
 MY_ADMIN_ID = 6795794125
 
 # Файл для хранения данных
@@ -32,6 +32,9 @@ def save_data(data):
 
 files_db = load_data()
 
+# Временное хранилище для ожидания файла после команды /add
+waiting_for_file = {}
+
 # Команда /start
 @bot.message_handler(commands=['start'])
 def send_welcome(message):
@@ -47,7 +50,7 @@ def send_welcome(message):
     )
     bot.reply_to(message, text, reply_markup=markup)
 
-# Просмотр файлов
+# Команда /files — список файлов
 @bot.message_handler(commands=['files'])
 def list_files(message):
     if not files_db:
@@ -59,29 +62,53 @@ def list_files(message):
         response += f"{idx}. {item['name']}\n"
     bot.reply_to(message, response)
 
-# Очистка файлов (только для админа)
+# Команда /clear — очистка файлов (только для тебя)
 @bot.message_handler(commands=['clear'])
 def clear_files(message):
     global files_db
-    if message.from_user.id == MY_ADMIN_ID:
-        files_db = []
-        save_data(files_db)
-        bot.reply_to(message, "🗑 Все файлы удалены.")
-    else:
-        bot.reply_to(message, "У тебя нет прав на это действие.")
+    if message.from_user.id != MY_ADMIN_ID:
+        bot.reply_to(message, "Я не знаю такую команду.")
+        return
 
-# Добавление файла (отправляешь документ с подписью-названием, например: have a hat)
+    files_db = []
+    save_data(files_db)
+    bot.reply_to(message, "🗑 Все файлы удалены.")
+
+# Команда /add [название] — только для тебя
+@bot.message_handler(commands=['add'])
+def add_file_command(message):
+    if message.from_user.id != MY_ADMIN_ID:
+        bot.reply_to(message, "Я не знаю такую команду.")
+        return
+
+    # Извлекаем название после команды /add
+    parts = message.text.split(maxsplit=1)
+    if len(parts) < 2:
+        bot.reply_to(message, "⚠️ Напиши название после команды, например: `/add have a hat`", parse_mode="Markdown")
+        return
+
+    file_title = parts[1].strip()
+    waiting_for_file[message.from_user.id] = file_title
+    bot.reply_to(message, f"📥 Отправь файл для сохранения под названием: *{file_title}*", parse_mode="Markdown")
+
+# Обработка входящих документов (файлов)
 @bot.message_handler(content_types=['document'])
 def handle_document(message):
-    file_name = message.caption if message.caption else message.document.file_name
+    user_id = message.from_user.id
+    
+    # Проверяем, что файл отправляет именно админ и он вызывал команду /add
+    if user_id != MY_ADMIN_ID or user_id not in waiting_for_file:
+        return
+
+    file_title = waiting_for_file.pop(user_id)
     file_id = message.document.file_id
 
-    files_db.append({"name": file_name, "file_id": file_id})
+    files_db.append({"name": file_title, "file_id": file_id})
     save_data(files_db)
 
-    bot.reply_to(message, f"✅ Файл успешно добавлен под названием: {file_name}")
+    bot.reply_to(message, f"✅ Файл успешно сохранен под названием: *{file_title}*", parse_mode="Markdown")
 
-# Обработка любой непонятной хуйни / текста / команд
+# Обработка любой другой неизвестной хуйни/текста
 @bot.message_handler(func=lambda message: True)
 def handle_other(message):
     bot.reply_to(message, "Я не знаю такую команду.")
