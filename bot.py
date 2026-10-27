@@ -2,7 +2,7 @@ import sqlite3
 import telebot
 from telebot.types import BotCommand
 
-TOKEN = "8919124931:AAH1kn9Ib5iwU4bR5513Hc7ZsWqvbCIE_io"
+TOKEN = "8847975926:AAGmu4pfRfMa11Ow4hCw0kFURveuFI2YYPw"
 CHANNEL_USERNAME = "@goat1488_67"
 ADMIN_ID = 6795794125
 FEEDBACK_BOT_URL = "https://t.me/feedbackls_bot"
