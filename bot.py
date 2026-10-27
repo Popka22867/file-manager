@@ -34,7 +34,7 @@ def send_welcome(message):
     user_id = message.from_user.id
     args = message.text.split()
 
-    # Если перешли по глубокой ссылке с ключом/тегом
+    # Если перешли по глубокой ссылке
     if len(args) > 1:
         file_key = args[1]
 
@@ -51,8 +51,7 @@ def send_welcome(message):
             )
             return
 
-        # Ищем файл в канале-хранилище по тегу/ключу
-        send_file_from_storage(user_id, file_key)
+        send_file_to_user(message.chat.id, file_key)
         return
 
     # Обычный /start
@@ -82,17 +81,26 @@ def callback_check_sub(call):
     if check_subscription(user_id):
         bot.answer_callback_query(call.id, "✅ Подписка подтверждена!")
         bot.delete_message(call.message.chat.id, call.message.message_id)
-        send_file_from_storage(user_id, file_key)
+        send_file_to_user(user_id, file_key)
     else:
         bot.answer_callback_query(call.id, "❌ Вы все еще не подписаны на канал!", show_alert=True)
 
-def send_file_from_storage(user_id, file_key):
-    # Так как Telegram не умеет искать по тексту в каналах через стандартный Bot API без यूजरbot-а,
-    # самый простой способ — бот пересылает сообщение или мы ищем по истории.
-    # Но проще всего: бот будет выдавать файл напрямую по сохраненному ID из канала.
-    # (Ниже в /add мы сделаем так, чтобы бот запоминал связку ключ -> сообщение в канале)
-    bot.send_message(user_id, f"🔍 Ищу файл по ключу: `{file_key}`...")
+def send_file_to_user(chat_id, file_key):
+    msg = bot.send_message(chat_id, "Секунду...")
+    
+    # Пытаемся найти и переслать файл из канала-хранилища по тегу
+    try:
+        # Проходим по последним сообщениям канала (Telegram API позволяет пересылать по ID, 
+        # поэтому здесь мы берем файл напрямую из сохраненного сообщения через копирование)
+        # Если нужно точное сопоставление, бот пересылает исходный файл из истории канала.
+        # Для этого проще всего копировать последнее или использовать привязку:
+        # Но самый надежный способ без базы — бот пересылает файл из канала по сохраненному ID сообщения.
+        # Ниже в /add мы сделаем сохранение ID сообщения, чтобы выдавать мгновенно!
+        pass
+    except Exception:
+        pass
 
+# Улучшенная функция отправки с сохранением ID сообщения в канале для мгновенной выдачи
 @bot.message_handler(commands=["add"])
 def add_file_step1(message):
     if message.from_user.id != ADMIN_ID:
@@ -129,33 +137,83 @@ def handle_incoming_file(message):
     bot_username = bot.get_me().username
     deep_link = f"https://t.me/{bot_username}?start={tag}"
 
-    # Формируем твой шаблон для публикации в канал
+    # Твой чистый формат для канала (без лишних фраз)
     channel_caption = (
-        "файл прикреплен\n"
         f"#{tag}\n"
-        f"{description}\n"
+        f"{description}\n\n"
         f"{deep_link}"
     )
 
     try:
-        # Отправляем файл в твой канал «ссылки и файлы» по твоему формату
+        # Публикуем в твой канал «ссылки и файлы»
         if message.document:
-            bot.send_document(STORAGE_CHANNEL_ID, message.document.file_id, caption=channel_caption)
+            sent_msg = bot.send_document(STORAGE_CHANNEL_ID, message.document.file_id, caption=channel_caption)
         elif message.photo:
-            bot.send_photo(STORAGE_CHANNEL_ID, message.photo[-1].file_id, caption=channel_caption)
+            sent_msg = bot.send_photo(STORAGE_CHANNEL_ID, message.photo[-1].file_id, caption=channel_caption)
         elif message.video:
-            bot.send_video(STORAGE_CHANNEL_ID, message.video.file_id, caption=channel_caption)
+            sent_msg = bot.send_video(STORAGE_CHANNEL_ID, message.video.file_id, caption=channel_caption)
     except Exception as e:
-        bot.send_message(message.chat.id, f"❌ Ошибка публикации в канал (убедись, что бот админ в канале): {e}")
+        bot.send_message(message.chat.id, f"❌ Ошибка публикации в канал (убедись, что бот админ): {e}")
         admin_states.pop(ADMIN_ID, None)
         return
 
+    # Сохраняем ID отправленного сообщения из канала в мини-словарь, чтобы бот мгновенно его оттуда забирал
+    # (Чтобы не терялось при перезапуске, мы можем сохранять file_id прямо в коде или в файлик, 
+    # но давай сделаем простую привязку тега к file_id в словаре, который дублируется)
+    global file_mapping
+    # Сохраняем тип и file_id
+    file_data = {
+        "file_id": message.document.file_id if message.document else (message.photo[-1].file_id if message.photo else message.video.file_id),
+        "type": "document" if message.document else ("photo" if message.photo else "video"),
+        "description": description
+    }
+    
+    # Записываем в простой JSON-файл на сервере, чтобы сохранялось между перезапусками памяти
+    save_mapping(tag, file_data)
+
     bot.send_message(
         message.chat.id,
-        f"✅ Файл успешно опубликован в канал по твоему шаблону!\n\n🔗 Ссылка для выдачи:\n{deep_link}",
+        f"✅ Готово! Файл опубликован в канал.\n\n🔗 Ссылка:\n{deep_link}",
         parse_mode=None,
     )
     admin_states.pop(ADMIN_ID, None)
+
+import json
+
+MAPPING_FILE = "file_mapping.json"
+
+def load_mapping():
+    if os.path.exists(MAPPING_FILE):
+        with open(MAPPING_FILE, "r", encoding="utf-8") as f:
+            try:
+                return json.load(f)
+            except:
+                return {}
+    return {}
+
+def save_mapping(tag, data):
+    mapping = load_mapping()
+    mapping[tag] = data
+    with open(MAPPING_FILE, "w", encoding="utf-8") as f:
+        json.dump(mapping, f, ensure_ascii=False, indent=4)
+
+# Переписанная функция выдачи файла без лишних слов
+def send_file_to_user(chat_id, file_key):
+    bot.send_message(chat_id, "Секунду...")
+    
+    mapping = load_mapping()
+    if file_key in mapping:
+        item = mapping[file_key]
+        caption = f"📁 {item['description']}"
+        
+        if item['type'] == 'document':
+            bot.send_document(chat_id, item['file_id'], caption=caption)
+        elif item['type'] == 'photo':
+            bot.send_photo(chat_id, item['file_id'], caption=caption)
+        elif item['type'] == 'video':
+            bot.send_video(chat_id, item['file_id'], caption=caption)
+    else:
+        bot.send_message(chat_id, "❌ Файл не найден.")
 
 # --- ВЕБ-СЕРВЕР ДЛЯ РАБОТЫ 24/7 НА RENDER ---
 app = Flask('')
