@@ -1,14 +1,13 @@
 import sqlite3
 import telebot
 
-# Твои данные
 TOKEN = "8919124931:AAH1kn9Ib5iwU4bR5513Hc7ZsWqvbCIE_io"
-CHANNEL_USERNAME = "@goat1488_67"  # Канал, на который нужна подписка
-ADMIN_ID = 6795794125  # Твой Telegram ID
+CHANNEL_USERNAME = "@goat1488_67"
+ADMIN_ID = 6795794125
 
 bot = telebot.TeleBot(TOKEN)
 
-# Инициализация базы данных SQLite
+# База данных
 conn = sqlite3.connect("database.db", check_same_thread=False)
 cursor = conn.cursor()
 
@@ -25,11 +24,9 @@ CREATE TABLE IF NOT EXISTS files (
 conn.commit()
 
 
-# Функция проверки подписки
 def check_subscription(user_id):
   try:
     member = bot.get_chat_member(CHANNEL_USERNAME, user_id)
-    # Статусы, при которых считается, что пользователь подписан
     if member.status in ["member", "administrator", "creator"]:
       return True
   except Exception as e:
@@ -37,17 +34,14 @@ def check_subscription(user_id):
   return False
 
 
-# Команда /start (с поддержкой глубоких ссылок)
 @bot.message_handler(commands=["start"])
 def send_welcome(message):
   user_id = message.from_user.id
   args = message.text.split()
 
-  # Если пользователь пришел по глубокой ссылке (например, /start key123)
   if len(args) > 1:
     file_key = args[1]
 
-    # Проверяем подписку
     if not check_subscription(user_id):
       markup = telebot.types.InlineKeyboardMarkup()
       channel_link = f"https://t.me/{CHANNEL_USERNAME.replace('@', '')}"
@@ -67,7 +61,6 @@ def send_welcome(message):
       )
       return
 
-    # Если подписан — выдаем файл
     cursor.execute(
         "SELECT file_id, file_type, description FROM files WHERE key = ?",
         (file_key,),
@@ -96,7 +89,6 @@ def send_welcome(message):
     )
 
 
-# Обработка нажатия на кнопку «Я подписался»
 @bot.callback_query_handler(func=lambda call: call.data.startswith("check_sub_"))
 def callback_check_sub(call):
   user_id = call.from_user.id
@@ -106,7 +98,6 @@ def callback_check_sub(call):
     bot.answer_callback_query(call.id, "✅ Подписка подтверждена!")
     bot.delete_message(call.message.chat.id, call.message.message_id)
 
-    # Выдаем файл после успешной проверки
     cursor.execute(
         "SELECT file_id, file_type, description FROM files WHERE key = ?",
         (file_key,),
@@ -127,7 +118,8 @@ def callback_check_sub(call):
     bot.answer_callback_query(
         call.id, "❌ Вы все еще не подписаны на канал!", show_alert=True
     )
-# Админ-команда: Добавление файла (/add ключ описание)
+
+
 @bot.message_handler(commands=["add"])
 def add_file(message):
   if message.from_user.id != ADMIN_ID:
@@ -137,12 +129,10 @@ def add_file(message):
   if not message.reply_to_message:
     bot.send_message(
         message.chat.id,
-        "⚠️ Ответьте этой командой (/add ключ описание) на нужное сообщение с"
-        " файлом (документ, фото или видео).",
+        "⚠️ Ответьте этой командой (/add ключ описание) на сообщение с файлом.",
     )
     return
 
-  # Исправлено: корректное разбиение команды на части с защитой от ошибок
   command_parts = message.text.split(maxsplit=2)
   if len(command_parts) < 2:
     bot.send_message(
@@ -169,9 +159,7 @@ def add_file(message):
     file_type = "video"
   else:
     bot.send_message(
-        message.chat.id,
-        "❌ В отвеченном сообщении нет поддерживаемого файла (документ, фото,"
-        " видео).",
+        message.chat.id, "❌ В отвеченном сообщении нет поддерживаемого файла."
     )
     return
 
@@ -182,20 +170,23 @@ def add_file(message):
         (key, file_id, file_type, description),
     )
     conn.commit()
+  except Exception as e:
+    bot.send_message(message.chat.id, f"❌ Ошибка базы данных: {e}")
+    return
 
+  try:
     bot_username = bot.get_me().username
     deep_link = f"https://t.me/{bot_username}?start={key}"
     bot.send_message(
         message.chat.id,
         f"✅ Файл успешно добавлен!\n\n🔑 Ключ: {key}\n🔗 Ссылка для"
         f" выдачи:\n{deep_link}",
-        parse_mode="Markdown",
+        parse_mode=None,
     )
   except Exception as e:
-    bot.send_message(message.chat.id, f"❌ Ошибка базы данных: {e}")
+    bot.send_message(message.chat.id, f"❌ Ошибка отправки сообщения: {e}")
 
 
-# Админ-команда: Список всех файлов (/files)
 @bot.message_handler(commands=["files"])
 def list_files(message):
   if message.from_user.id != ADMIN_ID:
@@ -213,10 +204,9 @@ def list_files(message):
   for key, desc in rows:
     text += f"• {key} — {desc if desc else 'Без описания'}\n"
 
-  bot.send_message(message.chat.id, text, parse_mode="Markdown")
+  bot.send_message(message.chat.id, text, parse_mode=None)
 
 
-# Админ-команда: Удаление файла (/del ключ)
 @bot.message_handler(commands=["del"])
 def delete_file(message):
   if message.from_user.id != ADMIN_ID:
@@ -235,7 +225,7 @@ def delete_file(message):
   conn.commit()
 
   bot.send_message(
-      message.chat.id, f"🗑 Файл с ключом {key} удален (если он существовал)."
+      message.chat.id, f"🗑 Файл с ключом `{key}` удален (если он существовал).", parse_mode=None
   )
 
 
