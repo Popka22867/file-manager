@@ -1,3 +1,4 @@
+import json
 import os
 from threading import Thread
 import telebot
@@ -10,6 +11,7 @@ CHANNEL_USERNAME = "@goat1488_67"  # Канал для проверки подп
 ADMIN_ID = 6795794125
 STORAGE_CHANNEL_ID = -1003931200359  # Твой канал «ссылки и файлы»[span_0](start_span)[span_0](end_span)
 FEEDBACK_BOT_URL = "https://t.me/feedbackls_bot"
+MAPPING_FILE = "file_mapping.json"
 
 bot = telebot.TeleBot(TOKEN)
 
@@ -21,7 +23,28 @@ bot.set_my_commands([
 ])
 
 admin_states = {}
-global_storage = {}  # Словарь для хранения тегов и ID сообщений
+
+def load_mapping():
+    if os.path.exists(MAPPING_FILE):
+        with open(MAPPING_FILE, "r", encoding="utf-8") as f:
+            try:
+                return json.load(f)
+            except:
+                return {}
+    return {}
+
+def save_mapping(tag, data):
+    mapping = load_mapping()
+    mapping[tag] = data
+    with open(MAPPING_FILE, "w", encoding="utf-8") as f:
+        json.dump(mapping, f, ensure_ascii=False, indent=4)
+
+def delete_mapping(tag):
+    mapping = load_mapping()
+    if tag in mapping:
+        del mapping[tag]
+        with open(MAPPING_FILE, "w", encoding="utf-8") as f:
+            json.dump(mapping, f, ensure_ascii=False, indent=4)
 
 def check_subscription(user_id):
     try:
@@ -89,13 +112,14 @@ def callback_check_sub(call):
 def send_file_to_user(chat_id, file_key):
     bot.send_message(chat_id, "Секунду...")
     
-    try:
-        if file_key in global_storage:
-            msg_id = global_storage[file_key]
-            bot.copy_message(chat_id, STORAGE_CHANNEL_ID, msg_id)
+    mapping = load_mapping()
+    if file_key in mapping:
+        item = mapping[file_key]
+        try:
+            bot.copy_message(chat_id, STORAGE_CHANNEL_ID, item['msg_id'])
             return
-    except Exception:
-        pass
+        except Exception:
+            pass
 
     bot.send_message(chat_id, "❌ Файл не найден.")
 
@@ -108,7 +132,8 @@ def add_file_step1(message):
     admin_states[ADMIN_ID] = "waiting_for_file"
     bot.send_message(
         message.chat.id,
-        "📤 **Отправьте файл**.\nВ описании к файлу укажи только тег (например: `gold`). Текст в канале публиковаться не будет.",
+        "📤 **Отправьте файл**.\nВ описании к файлу (caption) укажи данные в формате:\n\n"
+        "`тег Описание файла`\n\n*Пример:* `gold Лучший кфг`",
         parse_mode="Markdown",
     )
 
@@ -129,13 +154,28 @@ def handle_incoming_file(message):
         return
 
     tag = parts[0]
+    description = parts[1] if len(parts) > 1 else "Без описания"
+
     bot_username = bot.get_me().username
     deep_link = f"https://t.me/{bot_username}?start={tag}"
 
+    # Красивый шаблон для канала со всей информацией
+    channel_caption = (
+        f"#{tag}\n"
+        f"📝 {description}\n\n"
+        f"🔗 {deep_link}"
+    )
+
     try:
-        # Отправляем в канал абсолютно чистый файл без какого-либо текста и подписей
-        sent_msg = bot.copy_message(STORAGE_CHANNEL_ID, message.chat.id, message.message_id, caption=None)
-        global_storage[tag] = sent_msg.message_id
+        sent_msg = bot.copy_message(STORAGE_CHANNEL_ID, message.chat.id, message.message_id, caption=channel_caption)
+        
+        # Сохраняем в постоянный файл на диске
+        file_data = {
+            "msg_id": sent_msg.message_id,
+            "description": description
+        }
+        save_mapping(tag, file_data)
+
     except Exception as e:
         bot.send_message(message.chat.id, f"❌ Ошибка публикации в канал (убедись, что бот админ): {e}")
         admin_states.pop(ADMIN_ID, None)
@@ -143,7 +183,7 @@ def handle_incoming_file(message):
 
     bot.send_message(
         message.chat.id,
-        f"✅ Файл успешно отправлен в канал без лишнего текста!\n\n🔗 Ссылка для выдачи:\n{deep_link}",
+        f"✅ Файл успешно опубликован в канал со всеми данными!\n\n🔗 Ссылка:\n{deep_link}",
         parse_mode=None,
     )
     admin_states.pop(ADMIN_ID, None)
@@ -154,15 +194,16 @@ def list_files(message):
         bot.send_message(message.chat.id, "⛔ У вас нет прав администратора.")
         return
 
-    if not global_storage:
+    mapping = load_mapping()
+    if not mapping:
         bot.send_message(message.chat.id, "📭 Список файлов пуст.")
         return
 
     bot_username = bot.get_me().username
     text = "📂 Список сохраненных файлов:\n\n"
-    for tag in global_storage.keys():
+    for tag, item in mapping.items():
         link = f"https://t.me/{bot_username}?start={tag}"
-        text += f"• Тег: `{tag}`\n  🔗 {link}\n\n"
+        text += f"• Тег: `{tag}`\n  Описание: {item['description']}\n  🔗 {link}\n\n"
 
     bot.send_message(message.chat.id, text, parse_mode="Markdown")
 
@@ -178,12 +219,13 @@ def delete_file(message):
         return
 
     tag = args[1].strip()
+    mapping = load_mapping()
 
-    if tag in global_storage:
-        del global_storage[tag]
-        bot.send_message(message.chat.id, f"🗑 Файл с тегом `{tag}` удален из списка бота.")
+    if tag in mapping:
+        delete_mapping(tag)
+        bot.send_message(message.chat.id, f"🗑 Файл с тегом `{tag}` удален.")
     else:
-        bot.send_message(message.chat.id, f"❌ Файл с тегом `{tag}` не найден в активном списке.")
+        bot.send_message(message.chat.id, f"❌ Файл с тегом `{tag}` не найден.")
 
 # --- ВЕБ-СЕРВЕР ДЛЯ РАБОТЫ 24/7 НА RENDER ---
 app = Flask('')
