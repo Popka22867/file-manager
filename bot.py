@@ -4,6 +4,7 @@ import telebot
 TOKEN = "8919124931:AAH1kn9Ib5iwU4bR5513Hc7ZsWqvbCIE_io"
 CHANNEL_USERNAME = "@goat1488_67"
 ADMIN_ID = 6795794125
+FEEDBACK_BOT_URL = "https://t.me/feedbackls_bot"
 
 bot = telebot.TeleBot(TOKEN)
 
@@ -82,11 +83,39 @@ def send_welcome(message):
     else:
       bot.send_message(message.chat.id, "❌ Файл не найден или был удален.")
   else:
-    bot.send_message(
-        message.chat.id,
-        "Привет! Этот бот выдает файлы за подписку на канал."
-        f" {CHANNEL_USERNAME}",
+    # Отправка приветствия с картинкой god.png и кнопками
+    markup = telebot.types.InlineKeyboardMarkup()
+    channel_link = f"https://t.me/{CHANNEL_USERNAME.replace('@', '')}"
+    btn_channel = telebot.types.InlineKeyboardButton(
+        "📢 Наш канал", url=channel_link
     )
+    btn_ls = telebot.types.InlineKeyboardButton(
+        "👤 Мое ЛС", url=FEEDBACK_BOT_URL
+    )
+    markup.add(btn_channel, btn_ls)
+
+    caption_text = (
+        "👋 Привет!\n\n"
+        f"👀 Я храню файлы с канала {CHANNEL_USERNAME}\n\n"
+        "✔️ Используй кнопки ниже для навигации"
+    )
+
+    try:
+      with open("god.png", "rb") as photo:
+        bot.send_photo(
+            message.chat.id,
+            photo,
+            caption=caption_text,
+            reply_markup=markup,
+            parse_mode=None,
+        )
+    except Exception:
+      bot.send_message(
+          message.chat.id,
+          caption_text,
+          reply_markup=markup,
+          parse_mode=None,
+      )
 
 
 @bot.callback_query_handler(func=lambda call: call.data.startswith("check_sub_"))
@@ -225,7 +254,9 @@ def delete_file(message):
   conn.commit()
 
   bot.send_message(
-      message.chat.id, f"🗑 Файл с ключом `{key}` удален (если он существовал).", parse_mode=None
+      message.chat.id,
+      f"🗑 Файл с ключом `{key}` удален (если он существовал).",
+      parse_mode=None,
   )
 
 
