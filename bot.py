@@ -12,7 +12,10 @@ bot = telebot.TeleBot(TOKEN)
 # Твой фиксированный ID администратора
 MY_ADMIN_ID = 6795794125
 
-# Файл для хранения данных
+# ID твоего приватного канала для сохранения файлов
+STORAGE_CHANNEL_ID = -1004496422540
+
+# Файл для хранения метаданных
 DATA_FILE = "files.json"
 
 # Загрузка данных из json
@@ -39,12 +42,12 @@ try:
 except Exception:
     BOT_USERNAME = "your_bot"
 
-# Обработка команды /start (поддерживает параметр get_<index> для выдачи файла по ссылке)
+# Команда /start (поддерживает выдачу файла по ссылке)
 @bot.message_handler(commands=['start'])
 def send_welcome(message):
     args = message.text.split()
     
-    # Если перешли по ссылке вида t.me/bot?start=get_0
+    # Если перешли по ссылке вида t.me/bot?start=get_index
     if len(args) > 1 and args[1].startswith("get_"):
         try:
             index = int(args[1].replace("get_", ""))
@@ -96,9 +99,9 @@ def clear_files(message):
 
     files_db = []
     save_data(files_db)
-    bot.reply_to(message, "🗑 Все файлы удалены.")
+    bot.reply_to(message, "🗑 Все файлы удалены из базы.")
 
-# Добавление файла: отправляешь документ и пишешь название в подпись (caption)
+# Добавление файла через отправку документа с подписью
 @bot.message_handler(content_types=['document'])
 def handle_document(message):
     user_id = message.from_user.id
@@ -107,23 +110,29 @@ def handle_document(message):
         return
 
     file_title = message.caption if message.caption else message.document.file_name
-    file_id = message.document.file_id
+    
+    try:
+        # Пересылаем файл в твой приватный канал для вечного хранения
+        forwarded_msg = bot.forward_message(STORAGE_CHANNEL_ID, message.chat.id, message.message_id)
+        file_id = forwarded_msg.document.file_id
+    except Exception as e:
+        bot.reply_to(message, f"❌ Ошибка при сохранении в канал. Убедись, что бот админ в канале!\nДетали: {e}")
+        return
 
     files_db.append({"name": file_title, "file_id": file_id})
     save_data(files_db)
 
-    # Генерируем ссылку для только что добавленного файла
     new_index = len(files_db) - 1
     file_link = f"https://t.me/{BOT_USERNAME}?start=get_{new_index}"
 
     response = (
-        f"✅ Файл успешно сохранен!\n"
+        f"✅ Файл успешно сохранен в канал!\n"
         f"📌 Название: *{file_title}*\n\n"
         f"🔗 Ссылка на скачивание:\n{file_link}"
     )
     bot.reply_to(message, response, parse_mode="Markdown")
 
-# Обработка любой другой неизвестной хуйни/текста
+# Обработка любой другой неизвестной команды или текста
 @bot.message_handler(func=lambda message: True)
 def handle_other(message):
     bot.reply_to(message, "Я не знаю такую команду.")
