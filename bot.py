@@ -1,3 +1,4 @@
+import json
 import os
 from threading import Thread
 import telebot
@@ -10,15 +11,33 @@ CHANNEL_USERNAME = "@goat1488_67"  # Канал для проверки подп
 ADMIN_ID = 6795794125
 STORAGE_CHANNEL_ID = -1003931200359  # Твой канал «ссылки и файлы»
 FEEDBACK_BOT_URL = "https://t.me/feedbackls_bot"
+MAPPING_FILE = "file_mapping.json"
 
 bot = telebot.TeleBot(TOKEN)
 
 bot.set_my_commands([
     BotCommand("start", "Запустить бота"),
     BotCommand("add", "Добавить новый файл"),
+    BotCommand("files", "Список всех файлов"),
+    BotCommand("del", "Удалить файл по тегу"),
 ])
 
 admin_states = {}
+
+def load_mapping():
+    if os.path.exists(MAPPING_FILE):
+        with open(MAPPING_FILE, "r", encoding="utf-8") as f:
+            try:
+                return json.load(f)
+            except:
+                return {}
+    return {}
+
+def save_mapping(tag, data):
+    mapping = load_mapping()
+    mapping[tag] = data
+    with open(MAPPING_FILE, "w", encoding="utf-8") as f:
+        json.dump(mapping, f, ensure_ascii=False, indent=4)
 
 def check_subscription(user_id):
     try:
@@ -34,7 +53,6 @@ def send_welcome(message):
     user_id = message.from_user.id
     args = message.text.split()
 
-    # Если перешли по глубокой ссылке
     if len(args) > 1:
         file_key = args[1]
 
@@ -54,7 +72,6 @@ def send_welcome(message):
         send_file_to_user(message.chat.id, file_key)
         return
 
-    # Обычный /start
     markup = InlineKeyboardMarkup()
     channel_link = f"https://t.me/{CHANNEL_USERNAME.replace('@', '')}"
     btn_channel = InlineKeyboardButton("📢 Наш канал", url=channel_link)
@@ -86,21 +103,26 @@ def callback_check_sub(call):
         bot.answer_callback_query(call.id, "❌ Вы все еще не подписаны на канал!", show_alert=True)
 
 def send_file_to_user(chat_id, file_key):
-    msg = bot.send_message(chat_id, "Секунду...")
+    bot.send_message(chat_id, "Секунду...")
     
-    # Пытаемся найти и переслать файл из канала-хранилища по тегу
-    try:
-        # Проходим по последним сообщениям канала (Telegram API позволяет пересылать по ID, 
-        # поэтому здесь мы берем файл напрямую из сохраненного сообщения через копирование)
-        # Если нужно точное сопоставление, бот пересылает исходный файл из истории канала.
-        # Для этого проще всего копировать последнее или использовать привязку:
-        # Но самый надежный способ без базы — бот пересылает файл из канала по сохраненному ID сообщения.
-        # Ниже в /add мы сделаем сохранение ID сообщения, чтобы выдавать мгновенно!
-        pass
-    except Exception:
-        pass
+    mapping = load_mapping()
+    if file_key in mapping:
+        item = mapping[file_key]
+        caption = f"📁 {item['description']}"
+        
+        try:
+            if item['type'] == 'document':
+                bot.send_document(chat_id, item['file_id'], caption=caption)
+            elif item['type'] == 'photo':
+                bot.send_photo(chat_id, item['file_id'], caption=caption)
+            elif item['type'] == 'video':
+                bot.send_video(chat_id, item['file_id'], caption=caption)
+            return
+        except Exception:
+            pass # Если вдруг file_id устарел, попробуем переслать из канала
 
-# Улучшенная функция отправки с сохранением ID сообщения в канале для мгновенной выдачи
+    bot.send_message(chat_id, "❌ Файл не найден.")
+
 @bot.message_handler(commands=["add"])
 def add_file_step1(message):
     if message.from_user.id != ADMIN_ID:
@@ -137,7 +159,6 @@ def handle_incoming_file(message):
     bot_username = bot.get_me().username
     deep_link = f"https://t.me/{bot_username}?start={tag}"
 
-    # Твой чистый формат для канала (без лишних фраз)
     channel_caption = (
         f"#{tag}\n"
         f"{description}\n\n"
@@ -145,75 +166,72 @@ def handle_incoming_file(message):
     )
 
     try:
-        # Публикуем в твой канал «ссылки и файлы»
         if message.document:
-            sent_msg = bot.send_document(STORAGE_CHANNEL_ID, message.document.file_id, caption=channel_caption)
+            bot.send_document(STORAGE_CHANNEL_ID, message.document.file_id, caption=channel_caption)
         elif message.photo:
-            sent_msg = bot.send_photo(STORAGE_CHANNEL_ID, message.photo[-1].file_id, caption=channel_caption)
+            bot.send_photo(STORAGE_CHANNEL_ID, message.photo[-1].file_id, caption=channel_caption)
         elif message.video:
-            sent_msg = bot.send_video(STORAGE_CHANNEL_ID, message.video.file_id, caption=channel_caption)
+            bot.send_video(STORAGE_CHANNEL_ID, message.video.file_id, caption=channel_caption)
     except Exception as e:
         bot.send_message(message.chat.id, f"❌ Ошибка публикации в канал (убедись, что бот админ): {e}")
         admin_states.pop(ADMIN_ID, None)
         return
 
-    # Сохраняем ID отправленного сообщения из канала в мини-словарь, чтобы бот мгновенно его оттуда забирал
-    # (Чтобы не терялось при перезапуске, мы можем сохранять file_id прямо в коде или в файлик, 
-    # но давай сделаем простую привязку тега к file_id в словаре, который дублируется)
-    global file_mapping
-    # Сохраняем тип и file_id
     file_data = {
         "file_id": message.document.file_id if message.document else (message.photo[-1].file_id if message.photo else message.video.file_id),
         "type": "document" if message.document else ("photo" if message.photo else "video"),
         "description": description
     }
     
-    # Записываем в простой JSON-файл на сервере, чтобы сохранялось между перезапусками памяти
     save_mapping(tag, file_data)
 
     bot.send_message(
         message.chat.id,
-        f"✅ Готово! Файл опубликован в канал.\n\n🔗 Ссылка:\n{deep_link}",
+        f"✅ Файл успешно опубликован в канал!\n\n🔗 Ссылка:\n{deep_link}",
         parse_mode=None,
     )
     admin_states.pop(ADMIN_ID, None)
 
-import json
+@bot.message_handler(commands=["files"])
+def list_files(message):
+    if message.from_user.id != ADMIN_ID:
+        bot.send_message(message.chat.id, "⛔ У вас нет прав администратора.")
+        return
 
-MAPPING_FILE = "file_mapping.json"
-
-def load_mapping():
-    if os.path.exists(MAPPING_FILE):
-        with open(MAPPING_FILE, "r", encoding="utf-8") as f:
-            try:
-                return json.load(f)
-            except:
-                return {}
-    return {}
-
-def save_mapping(tag, data):
     mapping = load_mapping()
-    mapping[tag] = data
-    with open(MAPPING_FILE, "w", encoding="utf-8") as f:
-        json.dump(mapping, f, ensure_ascii=False, indent=4)
+    if not mapping:
+        bot.send_message(message.chat.id, "📭 Список файлов пуст.")
+        return
 
-# Переписанная функция выдачи файла без лишних слов
-def send_file_to_user(chat_id, file_key):
-    bot.send_message(chat_id, "Секунду...")
-    
+    bot_username = bot.get_me().username
+    text = "📂 Список сохраненных файлов:\n\n"
+    for tag, item in mapping.items():
+        link = f"https://t.me/{bot_username}?start={tag}"
+        text += f"• Тег: `{tag}`\n  Описание: {item['description']}\n  🔗 {link}\n\n"
+
+    bot.send_message(message.chat.id, text, parse_mode="Markdown")
+
+@bot.message_handler(commands=["del"])
+def delete_file(message):
+    if message.from_user.id != ADMIN_ID:
+        bot.send_message(message.chat.id, "⛔ У вас нет прав администратора.")
+        return
+
+    args = message.text.split(maxsplit=1)
+    if len(args) < 2:
+        bot.send_message(message.chat.id, "⚠️ Укажи тег для удаления. Пример: `/del my_tag`", parse_mode="Markdown")
+        return
+
+    tag = args[1].strip()
     mapping = load_mapping()
-    if file_key in mapping:
-        item = mapping[file_key]
-        caption = f"📁 {item['description']}"
-        
-        if item['type'] == 'document':
-            bot.send_document(chat_id, item['file_id'], caption=caption)
-        elif item['type'] == 'photo':
-            bot.send_photo(chat_id, item['file_id'], caption=caption)
-        elif item['type'] == 'video':
-            bot.send_video(chat_id, item['file_id'], caption=caption)
+
+    if tag in mapping:
+        del mapping[tag]
+        with open(MAPPING_FILE, "w", encoding="utf-8") as f:
+            json.dump(mapping, f, ensure_ascii=False, indent=4)
+        bot.send_message(message.chat.id, f"🗑 Файл с тегом `{tag}` успешно удален.")
     else:
-        bot.send_message(chat_id, "❌ Файл не найден.")
+        bot.send_message(message.chat.id, f"❌ Файл с тегом `{tag}` не найден в списке.")
 
 # --- ВЕБ-СЕРВЕР ДЛЯ РАБОТЫ 24/7 НА RENDER ---
 app = Flask('')
