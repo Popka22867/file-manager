@@ -6,7 +6,6 @@ from telebot.types import BotCommand, InlineKeyboardButton, InlineKeyboardMarkup
 from flask import Flask
 
 TOKEN = "8847975926:AAGmu4pfRfMa11Ow4hCw0kFURveuFI2YYPw"
-CHANNEL_USERNAME = "@goat1488_67"
 ADMIN_ID = 6795794125
 STORAGE_CHANNEL_ID = -1003931200359
 FEEDBACK_BOT_URL = "https://t.me/feedbackls_bot"
@@ -22,7 +21,6 @@ bot.set_my_commands([
 
 admin_states = {}
 
-# --- ОБХОД СТИРАНИЯ НА RENDER: ХРАНИМ БАЗУ В ЗАКРЕПЛЕННОМ СООБЩЕНИИ КАНАЛА ---
 def load_mapping():
     try:
         chat = bot.get_chat(STORAGE_CHANNEL_ID)
@@ -54,51 +52,27 @@ def delete_mapping(tag):
     if tag in mapping:
         del mapping[tag]
         save_mapping_data(mapping)
-# --------------------------------------------------------------------------
-
-def check_subscription(user_id):
-    try:
-        member = bot.get_chat_member(CHANNEL_USERNAME, user_id)
-        if member.status in ["member", "administrator", "creator"]:
-            return True
-    except Exception as e:
-        print(f"Ошибка проверки подписки: {e}")
-    return False
 
 @bot.message_handler(commands=["start"])
 def send_welcome(message):
     user_id = message.from_user.id
     args = message.text.split()
 
+    # Если перешли по ссылке на файл — сразу отдаем без всяких подписок
     if len(args) > 1:
         file_key = args[1]
-
-        if not check_subscription(user_id):
-            markup = InlineKeyboardMarkup()
-            channel_link = f"https://t.me/{CHANNEL_USERNAME.replace('@', '')}"
-            markup.add(InlineKeyboardButton("📢 Подписаться на канал", url=channel_link))
-            markup.add(InlineKeyboardButton("✅ Я подписался", callback_data=f"check_sub_{file_key}"))
-
-            bot.send_message(
-                message.chat.id,
-                "❌ Чтобы получить файл, вы должны быть подписаны на наш канал!",
-                reply_markup=markup,
-            )
-            return
-
         send_file_to_user(message.chat.id, file_key)
         return
 
+    # Обычный /start
     markup = InlineKeyboardMarkup()
-    channel_link = f"https://t.me/{CHANNEL_USERNAME.replace('@', '')}"
-    btn_channel = InlineKeyboardButton("📢 Наш канал", url=channel_link)
     btn_ls = InlineKeyboardButton("👤 Мое ЛС", url=FEEDBACK_BOT_URL)
-    markup.add(btn_channel, btn_ls)
+    markup.add(btn_ls)
 
     caption_text = (
         "👋 Привет!\n\n"
-        f"👀 Я храню файлы с канала {CHANNEL_USERNAME}\n\n"
-        "✔️ Используй кнопки ниже для навигации"
+        "👀 Я твой личный файловый менеджер\n\n"
+        "✔️ Используй кнопки ниже для связи"
     )
 
     try:
@@ -106,18 +80,6 @@ def send_welcome(message):
             bot.send_photo(message.chat.id, photo, caption=caption_text, reply_markup=markup)
     except Exception:
         bot.send_message(message.chat.id, caption_text, reply_markup=markup)
-
-@bot.callback_query_handler(func=lambda call: call.data.startswith("check_sub_"))
-def callback_check_sub(call):
-    user_id = call.from_user.id
-    file_key = call.data.split("_")[2]
-
-    if check_subscription(user_id):
-        bot.answer_callback_query(call.id, "✅ Подписка подтверждена!")
-        bot.delete_message(call.message.chat.id, call.message.message_id)
-        send_file_to_user(user_id, file_key)
-    else:
-        bot.answer_callback_query(call.id, "❌ Вы все еще не подписаны на канал!", show_alert=True)
 
 def send_file_to_user(chat_id, file_key):
     bot.send_message(chat_id, "Секунду...")
@@ -185,7 +147,7 @@ def handle_incoming_file(message):
         save_mapping(tag, file_data)
 
     except Exception as e:
-        bot.send_message(message.chat.id, f"❌ Ошибка публикации в канал (убедись, что бот админ): {e}")
+        bot.send_message(message.chat.id, f"❌ Ошибка публикации в канал: {e}")
         admin_states.pop(ADMIN_ID, None)
         return
 
