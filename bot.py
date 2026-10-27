@@ -2,14 +2,13 @@ import sqlite3
 import telebot
 from telebot.types import BotCommand
 
-TOKEN = "8847975926:AAGmu4pfRfMa11Ow4hCw0kFURveuFI2YYPw"
+TOKEN = "ТВОЙ_НОВЫЙ_ТОКЕН"
 CHANNEL_USERNAME = "@goat1488_67"
 ADMIN_ID = 6795794125
 FEEDBACK_BOT_URL = "https://t.me/feedbackls_bot"
 
 bot = telebot.TeleBot(TOKEN)
 
-# Установка команд в меню бота для удобства
 bot.set_my_commands([
     BotCommand("start", "Запустить бота"),
     BotCommand("add", "Добавить новый файл"),
@@ -17,10 +16,8 @@ bot.set_my_commands([
     BotCommand("del", "Удалить файл по ключу"),
 ])
 
-# Словарь для отслеживания состояния администратора (ожидание ключа/файла)
 admin_states = {}
 
-# База данных
 conn = sqlite3.connect("database.db", check_same_thread=False)
 cursor = conn.cursor()
 
