@@ -8,7 +8,7 @@ from flask import Flask
 TOKEN = "8847975926:AAGmu4pfRfMa11Ow4hCw0kFURveuFI2YYPw"
 CHANNEL_USERNAME = "@goat1488_67"  # Канал для проверки подписки
 ADMIN_ID = 6795794125
-STORAGE_CHANNEL_ID = -1003931200359  # Твой канал «ссылки и файлы»[span_2](start_span)[span_2](end_span)
+STORAGE_CHANNEL_ID = -1003931200359  # Твой канал «ссылки и файлы»[span_0](start_span)[span_0](end_span)
 FEEDBACK_BOT_URL = "https://t.me/feedbackls_bot"
 
 bot = telebot.TeleBot(TOKEN)
@@ -17,9 +17,11 @@ bot.set_my_commands([
     BotCommand("start", "Запустить бота"),
     BotCommand("add", "Добавить новый файл"),
     BotCommand("files", "Список всех файлов"),
+    BotCommand("del", "Удалить файл по тегу"),
 ])
 
 admin_states = {}
+global_storage = {}  # Словарь для хранения тегов и ID сообщений
 
 def check_subscription(user_id):
     try:
@@ -87,26 +89,15 @@ def callback_check_sub(call):
 def send_file_to_user(chat_id, file_key):
     bot.send_message(chat_id, "Секунду...")
     
-    # Пересылаем сам файл напрямую из твоего канала-хранилища пользователю по хэшу/тегу из сообщения
-    # Для этого бот ищет файл в канале по тексту подписи (хештегу #ключ)
     try:
-        # Так как Telegram Bot API не имеет прямого поиска по сообщениям канала без юзербота,
-        # мы делаем самое простое и надежное: бот берет последние сообщения из STORAGE_CHANNEL_ID
-        messages = bot.get_chat_history_safe(STORAGE_CHANNEL_ID) if hasattr(bot, 'get_chat_history_safe') else []
-        
-        # Альтернативный и стопроцентный способ через пересылку последней копии или поиск:
-        # Самый простой вариант для бота — копировать сообщение из канала по его сохраненному ID,
-        # но раз файлы добавляются часто, давай сделаем сохранение ID в простейший глобальный список в памяти во время работы бота,
-        # а если бот перезапустился — он просто берет файл из последнего сообщения в канале.
-        bot.copy_message(chat_id, STORAGE_CHANNEL_ID, global_storage.get(file_key))
-        return
+        if file_key in global_storage:
+            msg_id = global_storage[file_key]
+            bot.copy_message(chat_id, STORAGE_CHANNEL_ID, msg_id)
+            return
     except Exception:
         pass
 
     bot.send_message(chat_id, "❌ Файл не найден.")
-
-# Словарь для быстрой выдачи в оперативке (пока бот запущен)
-global_storage = {}
 
 @bot.message_handler(commands=["add"])
 def add_file_step1(message):
@@ -117,8 +108,7 @@ def add_file_step1(message):
     admin_states[ADMIN_ID] = "waiting_for_file"
     bot.send_message(
         message.chat.id,
-        "📤 **Отправьте файл**.\nВ описании к файлу (caption) укажи данные в формате:\n\n"
-        "`тэг Описание файла`\n\n*Пример:* `config have ash hvh`",
+        "📤 **Отправьте файл**.\nВ описании к файлу укажи только тег (например: `gold`). Текст в канале публиковаться не будет.",
         parse_mode="Markdown",
     )
 
@@ -133,26 +123,18 @@ def handle_incoming_file(message):
     if not parts:
         bot.send_message(
             message.chat.id,
-            "⚠️ Вы забыли указать тэг в описании к файлу. Попробуйте снова через команду /add",
+            "⚠️ Вы забыли указать тег в описании к файлу. Попробуйте снова через команду /add",
         )
         admin_states.pop(ADMIN_ID, None)
         return
 
     tag = parts[0]
-    description = parts[1] if len(parts) > 1 else "Без описания"
-
     bot_username = bot.get_me().username
     deep_link = f"https://t.me/{bot_username}?start={tag}"
 
-    channel_caption = (
-        f"#{tag}\n"
-        f"{description}\n\n"
-        f"{deep_link}"
-    )
-
     try:
-        # Отправляем в твой канал «ссылки и файлы»
-        sent_msg = bot.copy_message(STORAGE_CHANNEL_ID, message.chat.id, message.message_id, caption=channel_caption)
+        # Отправляем в канал абсолютно чистый файл без какого-либо текста и подписей
+        sent_msg = bot.copy_message(STORAGE_CHANNEL_ID, message.chat.id, message.message_id, caption=None)
         global_storage[tag] = sent_msg.message_id
     except Exception as e:
         bot.send_message(message.chat.id, f"❌ Ошибка публикации в канал (убедись, что бот админ): {e}")
@@ -161,7 +143,7 @@ def handle_incoming_file(message):
 
     bot.send_message(
         message.chat.id,
-        f"✅ Файл успешно опубликован в канал!\n\n🔗 Ссылка:\n{deep_link}",
+        f"✅ Файл успешно отправлен в канал без лишнего текста!\n\n🔗 Ссылка для выдачи:\n{deep_link}",
         parse_mode=None,
     )
     admin_states.pop(ADMIN_ID, None)
@@ -173,16 +155,35 @@ def list_files(message):
         return
 
     if not global_storage:
-        bot.send_message(message.chat.id, "📭 Список файлов пуст (или бот перезапускался). Все файлы надежно лежат в твоем канале-хранилище!")
+        bot.send_message(message.chat.id, "📭 Список файлов пуст.")
         return
 
     bot_username = bot.get_me().username
-    text = "📂 Список файлов в памяти бота:\n\n"
+    text = "📂 Список сохраненных файлов:\n\n"
     for tag in global_storage.keys():
         link = f"https://t.me/{bot_username}?start={tag}"
         text += f"• Тег: `{tag}`\n  🔗 {link}\n\n"
 
     bot.send_message(message.chat.id, text, parse_mode="Markdown")
+
+@bot.message_handler(commands=["del"])
+def delete_file(message):
+    if message.from_user.id != ADMIN_ID:
+        bot.send_message(message.chat.id, "⛔ У вас нет прав администратора.")
+        return
+
+    args = message.text.split(maxsplit=1)
+    if len(args) < 2:
+        bot.send_message(message.chat.id, "⚠️ Укажи тег для удаления. Пример: `/del gold`", parse_mode="Markdown")
+        return
+
+    tag = args[1].strip()
+
+    if tag in global_storage:
+        del global_storage[tag]
+        bot.send_message(message.chat.id, f"🗑 Файл с тегом `{tag}` удален из списка бота.")
+    else:
+        bot.send_message(message.chat.id, f"❌ Файл с тегом `{tag}` не найден в активном списке.")
 
 # --- ВЕБ-СЕРВЕР ДЛЯ РАБОТЫ 24/7 НА RENDER ---
 app = Flask('')
