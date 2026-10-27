@@ -32,12 +32,35 @@ def save_data(data):
 
 files_db = load_data()
 
-# Временное хранилище для ожидания файла после команды /add
-waiting_for_file = {}
+# Получение username бота динамически
+BOT_USERNAME = None
+try:
+    BOT_USERNAME = bot.get_me().username
+except Exception:
+    BOT_USERNAME = "your_bot"
 
-# Команда /start
+# Обработка команды /start (поддерживает параметр get_<index> для выдачи файла по ссылке)
 @bot.message_handler(commands=['start'])
 def send_welcome(message):
+    args = message.text.split()
+    
+    # Если перешли по ссылке вида t.me/bot?start=get_0
+    if len(args) > 1 and args[1].startswith("get_"):
+        try:
+            index = int(args[1].replace("get_", ""))
+            if 0 <= index < len(files_db):
+                file_item = files_db[index]
+                bot.send_document(
+                    message.chat.id, 
+                    file_item['file_id'], 
+                    caption=f"📁 Вот твой файл: *{file_item['name']}*", 
+                    parse_mode="Markdown"
+                )
+                return
+        except ValueError:
+            pass
+
+    # Обычный /start с кнопками
     markup = InlineKeyboardMarkup()
     btn_channel = InlineKeyboardButton("📢 Мой Telegram-канал", url="https://t.me/Goat1488_67")
     btn_feedback = InlineKeyboardButton("💬 Бот обратной связи", url="https://t.me/feedbackls_bot")
@@ -50,19 +73,20 @@ def send_welcome(message):
     )
     bot.reply_to(message, text, reply_markup=markup)
 
-# Команда /files — список файлов
+# Список файлов
 @bot.message_handler(commands=['files'])
 def list_files(message):
     if not files_db:
         bot.reply_to(message, "Пока нет сохраненных файлов.")
         return
     
-    response = "📁 Список файлов:\n\n"
-    for idx, item in enumerate(files_db, 1):
-        response += f"{idx}. {item['name']}\n"
-    bot.reply_to(message, response)
+    response = "📁 Список файлов и ссылки:\n\n"
+    for idx, item in enumerate(files_db):
+        link = f"https://t.me/{BOT_USERNAME}?start=get_{idx}"
+        response += f"• *{item['name']}*\n🔗 {link}\n\n"
+    bot.reply_to(message, response, parse_mode="Markdown")
 
-# Команда /clear — очистка файлов (только для тебя)
+# Очистка файлов (только для тебя)
 @bot.message_handler(commands=['clear'])
 def clear_files(message):
     global files_db
@@ -74,39 +98,30 @@ def clear_files(message):
     save_data(files_db)
     bot.reply_to(message, "🗑 Все файлы удалены.")
 
-# Команда /add [название] — только для тебя
-@bot.message_handler(commands=['add'])
-def add_file_command(message):
-    if message.from_user.id != MY_ADMIN_ID:
-        bot.reply_to(message, "Я не знаю такую команду.")
-        return
-
-    # Извлекаем название после команды /add
-    parts = message.text.split(maxsplit=1)
-    if len(parts) < 2:
-        bot.reply_to(message, "⚠️ Напиши название после команды, например: `/add have a hat`", parse_mode="Markdown")
-        return
-
-    file_title = parts[1].strip()
-    waiting_for_file[message.from_user.id] = file_title
-    bot.reply_to(message, f"📥 Отправь файл для сохранения под названием: *{file_title}*", parse_mode="Markdown")
-
-# Обработка входящих документов (файлов)
+# Добавление файла: отправляешь документ и пишешь название в подпись (caption)
 @bot.message_handler(content_types=['document'])
 def handle_document(message):
     user_id = message.from_user.id
     
-    # Проверяем, что файл отправляет именно админ и он вызывал команду /add
-    if user_id != MY_ADMIN_ID or user_id not in waiting_for_file:
+    if user_id != MY_ADMIN_ID:
         return
 
-    file_title = waiting_for_file.pop(user_id)
+    file_title = message.caption if message.caption else message.document.file_name
     file_id = message.document.file_id
 
     files_db.append({"name": file_title, "file_id": file_id})
     save_data(files_db)
 
-    bot.reply_to(message, f"✅ Файл успешно сохранен под названием: *{file_title}*", parse_mode="Markdown")
+    # Генерируем ссылку для только что добавленного файла
+    new_index = len(files_db) - 1
+    file_link = f"https://t.me/{BOT_USERNAME}?start=get_{new_index}"
+
+    response = (
+        f"✅ Файл успешно сохранен!\n"
+        f"📌 Название: *{file_title}*\n\n"
+        f"🔗 Ссылка на скачивание:\n{file_link}"
+    )
+    bot.reply_to(message, response, parse_mode="Markdown")
 
 # Обработка любой другой неизвестной хуйни/текста
 @bot.message_handler(func=lambda message: True)
