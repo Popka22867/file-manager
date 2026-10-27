@@ -1,28 +1,4 @@
-import os
-from threading import Thread
-from flask import Flask
-
-app = Flask("")
-
-
-@app.route("/")
-def home():
-  return "I'm alive!"
-
-
-def run_web():
-  port = int(os.environ.get("PORT", 8080))
-  app.run(host="0.0.0.0", port=port)
-
-
-if name == "main":
-  # Запускаем веб-сервер в фоне, чтобы Render видел открытый порт
-  t = Thread(target=run_web)
-  t.start()
-
-  # Запускаем твоего бота
-  bot.infinity_polling()
-  import json
+import json
 import os
 from threading import Thread
 import telebot
