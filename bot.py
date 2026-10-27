@@ -5,11 +5,10 @@ import telebot
 from telebot.types import BotCommand, InlineKeyboardButton, InlineKeyboardMarkup
 from flask import Flask
 
-# Настройки
 TOKEN = "8847975926:AAGmu4pfRfMa11Ow4hCw0kFURveuFI2YYPw"
-CHANNEL_USERNAME = "@goat1488_67"  # Канал для проверки подписки
+CHANNEL_USERNAME = "@goat1488_67"
 ADMIN_ID = 6795794125
-STORAGE_CHANNEL_ID = -1003931200359  # Твой канал «ссылки и файлы»[span_0](start_span)[span_0](end_span)
+STORAGE_CHANNEL_ID = -1003931200359
 FEEDBACK_BOT_URL = "https://t.me/feedbackls_bot"
 MAPPING_FILE = "file_mapping.json"
 
@@ -153,13 +152,12 @@ def handle_incoming_file(message):
         admin_states.pop(ADMIN_ID, None)
         return
 
-    tag = parts[0]
+    tag = parts[0].strip()
     description = parts[1] if len(parts) > 1 else "Без описания"
 
     bot_username = bot.get_me().username
     deep_link = f"https://t.me/{bot_username}?start={tag}"
 
-    # Красивый шаблон для канала со всей информацией
     channel_caption = (
         f"#{tag}\n"
         f"📝 {description}\n\n"
@@ -169,7 +167,6 @@ def handle_incoming_file(message):
     try:
         sent_msg = bot.copy_message(STORAGE_CHANNEL_ID, message.chat.id, message.message_id, caption=channel_caption)
         
-        # Сохраняем в постоянный файл на диске
         file_data = {
             "msg_id": sent_msg.message_id,
             "description": description
@@ -222,12 +219,17 @@ def delete_file(message):
     mapping = load_mapping()
 
     if tag in mapping:
+        # Также пробуем удалить сообщение из самого канала-хранилища для порядка
+        try:
+            bot.delete_message(STORAGE_CHANNEL_ID, mapping[tag]['msg_id'])
+        except Exception:
+            pass
+
         delete_mapping(tag)
-        bot.send_message(message.chat.id, f"🗑 Файл с тегом `{tag}` удален.")
+        bot.send_message(message.chat.id, f"🗑 Файл с тегом `{tag}` полностью удален из бота и из канала.")
     else:
         bot.send_message(message.chat.id, f"❌ Файл с тегом `{tag}` не найден.")
 
-# --- ВЕБ-СЕРВЕР ДЛЯ РАБОТЫ 24/7 НА RENDER ---
 app = Flask('')
 
 @app.route('/')
