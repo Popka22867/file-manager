@@ -10,7 +10,6 @@ CHANNEL_USERNAME = "@goat1488_67"
 ADMIN_ID = 6795794125
 STORAGE_CHANNEL_ID = -1003931200359
 FEEDBACK_BOT_URL = "https://t.me/feedbackls_bot"
-MAPPING_FILE = "file_mapping.json"
 
 bot = telebot.TeleBot(TOKEN)
 
@@ -23,27 +22,39 @@ bot.set_my_commands([
 
 admin_states = {}
 
+# --- ОБХОД СТИРАНИЯ НА RENDER: ХРАНИМ БАЗУ В ЗАКРЕПЛЕННОМ СООБЩЕНИИ КАНАЛА ---
 def load_mapping():
-    if os.path.exists(MAPPING_FILE):
-        with open(MAPPING_FILE, "r", encoding="utf-8") as f:
-            try:
-                return json.load(f)
-            except:
-                return {}
+    try:
+        chat = bot.get_chat(STORAGE_CHANNEL_ID)
+        if chat.pinned_message:
+            text = chat.pinned_message.text or ""
+            if "CONFIG_MAP:" in text:
+                json_str = text.split("CONFIG_MAP:")[1].strip()
+                return json.loads(json_str)
+    except Exception as e:
+        print(f"Ошибка чтения базы из канала: {e}")
     return {}
+
+def save_mapping_data(mapping):
+    try:
+        json_str = json.dumps(mapping, ensure_ascii=False)
+        full_text = f"⚙️ СЛУЖЕБНАЯ БАЗА ДАННЫХ БОТА\nCONFIG_MAP:\n{json_str}"
+        msg = bot.send_message(STORAGE_CHANNEL_ID, full_text)
+        bot.pin_chat_message(STORAGE_CHANNEL_ID, msg.message_id)
+    except Exception as e:
+        print(f"Ошибка сохранения базы в канал: {e}")
 
 def save_mapping(tag, data):
     mapping = load_mapping()
     mapping[tag] = data
-    with open(MAPPING_FILE, "w", encoding="utf-8") as f:
-        json.dump(mapping, f, ensure_ascii=False, indent=4)
+    save_mapping_data(mapping)
 
 def delete_mapping(tag):
     mapping = load_mapping()
     if tag in mapping:
         del mapping[tag]
-        with open(MAPPING_FILE, "w", encoding="utf-8") as f:
-            json.dump(mapping, f, ensure_ascii=False, indent=4)
+        save_mapping_data(mapping)
+# --------------------------------------------------------------------------
 
 def check_subscription(user_id):
     try:
@@ -219,14 +230,13 @@ def delete_file(message):
     mapping = load_mapping()
 
     if tag in mapping:
-        # Также пробуем удалить сообщение из самого канала-хранилища для порядка
         try:
             bot.delete_message(STORAGE_CHANNEL_ID, mapping[tag]['msg_id'])
         except Exception:
             pass
 
         delete_mapping(tag)
-        bot.send_message(message.chat.id, f"🗑 Файл с тегом `{tag}` полностью удален из бота и из канала.")
+        bot.send_message(message.chat.id, f"🗑 Файл с тегом `{tag}` полностью удален.")
     else:
         bot.send_message(message.chat.id, f"❌ Файл с тегом `{tag}` не найден.")
 
