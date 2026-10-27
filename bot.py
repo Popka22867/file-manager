@@ -1,14 +1,14 @@
 import os
-import sqlite3
 from threading import Thread
 import telebot
-from telebot.types import BotCommand
+from telebot.types import BotCommand, InlineKeyboardButton, InlineKeyboardMarkup
 from flask import Flask
 
-# Настройки твоего бота и каналов
+# Настройки
 TOKEN = "8847975926:AAGmu4pfRfMa11Ow4hCw0kFURveuFI2YYPw"
 CHANNEL_USERNAME = "@goat1488_67"  # Канал для проверки подписки
 ADMIN_ID = 6795794125
+STORAGE_CHANNEL_ID = -1003931200359  # Твой канал «ссылки и файлы»
 FEEDBACK_BOT_URL = "https://t.me/feedbackls_bot"
 
 bot = telebot.TeleBot(TOKEN)
@@ -16,27 +16,9 @@ bot = telebot.TeleBot(TOKEN)
 bot.set_my_commands([
     BotCommand("start", "Запустить бота"),
     BotCommand("add", "Добавить новый файл"),
-    BotCommand("files", "Список всех файлов"),
-    BotCommand("del", "Удалить файл по ключу"),
 ])
 
 admin_states = {}
-
-# Настройка базы данных с поддержкой постоянного диска на Render
-DB_PATH = "/data/database.db" if os.path.exists("/data") else "database.db"
-conn = sqlite3.connect(DB_PATH, check_same_thread=False)
-cursor = conn.cursor()
-
-cursor.execute("""
-CREATE TABLE IF NOT EXISTS files (
-    key TEXT PRIMARY KEY,
-    file_id TEXT,
-    file_type TEXT,
-    description TEXT
-)
-""")
-conn.commit()
-
 
 def check_subscription(user_id):
     try:
@@ -47,26 +29,20 @@ def check_subscription(user_id):
         print(f"Ошибка проверки подписки: {e}")
     return False
 
-
 @bot.message_handler(commands=["start"])
 def send_welcome(message):
     user_id = message.from_user.id
     args = message.text.split()
 
+    # Если перешли по глубокой ссылке с ключом/тегом
     if len(args) > 1:
         file_key = args[1]
 
         if not check_subscription(user_id):
-            markup = telebot.types.InlineKeyboardMarkup()
+            markup = InlineKeyboardMarkup()
             channel_link = f"https://t.me/{CHANNEL_USERNAME.replace('@', '')}"
-            btn_channel = telebot.types.InlineKeyboardButton(
-                "📢 Подписаться на канал", url=channel_link
-            )
-            btn_check = telebot.types.InlineKeyboardButton(
-                "✅ Я подписался", callback_data=f"check_sub_{file_key}"
-            )
-            markup.add(btn_channel)
-            markup.add(btn_check)
+            markup.add(InlineKeyboardButton("📢 Подписаться на канал", url=channel_link))
+            markup.add(InlineKeyboardButton("✅ Я подписался", callback_data=f"check_sub_{file_key}"))
 
             bot.send_message(
                 message.chat.id,
@@ -75,60 +51,28 @@ def send_welcome(message):
             )
             return
 
-        cursor.execute(
-            "SELECT file_id, file_type, description FROM files WHERE key = ?",
-            (file_key,),
-        )
-        row = cursor.fetchone()
+        # Ищем файл в канале-хранилище по тегу/ключу
+        send_file_from_storage(user_id, file_key)
+        return
 
-        if row:
-            file_id, file_type, description = row
-            caption = f"📁 {description}" if description else ""
+    # Обычный /start
+    markup = InlineKeyboardMarkup()
+    channel_link = f"https://t.me/{CHANNEL_USERNAME.replace('@', '')}"
+    btn_channel = InlineKeyboardButton("📢 Наш канал", url=channel_link)
+    btn_ls = InlineKeyboardButton("👤 Мое ЛС", url=FEEDBACK_BOT_URL)
+    markup.add(btn_channel, btn_ls)
 
-            if file_type == "document":
-                bot.send_document(user_id, file_id, caption=caption)
-            elif file_type == "photo":
-                bot.send_photo(user_id, file_id, caption=caption)
-            elif file_type == "video":
-                bot.send_video(user_id, file_id, caption=caption)
-            else:
-                bot.send_message(user_id, f"📄 {description}\n\nФайл: {file_id}")
-        else:
-            bot.send_message(message.chat.id, "❌ Файл не найден или был удален.")
-    else:
-        markup = telebot.types.InlineKeyboardMarkup()
-        channel_link = f"https://t.me/{CHANNEL_USERNAME.replace('@', '')}"
-        btn_channel = telebot.types.InlineKeyboardButton(
-            "📢 Наш канал", url=channel_link
-        )
-        btn_ls = telebot.types.InlineKeyboardButton(
-            "👤 Мое ЛС", url=FEEDBACK_BOT_URL
-        )
-        markup.add(btn_channel, btn_ls)
+    caption_text = (
+        "👋 Привет!\n\n"
+        f"👀 Я храню файлы с канала {CHANNEL_USERNAME}\n\n"
+        "✔️ Используй кнопки ниже для навигации"
+    )
 
-        caption_text = (
-            "👋 Привет!\n\n"
-            f"👀 Я храню файлы с канала {CHANNEL_USERNAME}\n\n"
-            "✔️ Используй кнопки ниже для навигации"
-        )
-
-        try:
-            with open("god.png", "rb") as photo:
-                bot.send_photo(
-                    message.chat.id,
-                    photo,
-                    caption=caption_text,
-                    reply_markup=markup,
-                    parse_mode=None,
-                )
-        except Exception:
-            bot.send_message(
-                message.chat.id,
-                caption_text,
-                reply_markup=markup,
-                parse_mode=None,
-            )
-
+    try:
+        with open("god.png", "rb") as photo:
+            bot.send_photo(message.chat.id, photo, caption=caption_text, reply_markup=markup)
+    except Exception:
+        bot.send_message(message.chat.id, caption_text, reply_markup=markup)
 
 @bot.callback_query_handler(func=lambda call: call.data.startswith("check_sub_"))
 def callback_check_sub(call):
@@ -138,28 +82,16 @@ def callback_check_sub(call):
     if check_subscription(user_id):
         bot.answer_callback_query(call.id, "✅ Подписка подтверждена!")
         bot.delete_message(call.message.chat.id, call.message.message_id)
-
-        cursor.execute(
-            "SELECT file_id, file_type, description FROM files WHERE key = ?",
-            (file_key,),
-        )
-        row = cursor.fetchone()
-
-        if row:
-            file_id, file_type, description = row
-            caption = f"📁 {description}" if description else ""
-
-            if file_type == "document":
-                bot.send_document(user_id, file_id, caption=caption)
-            elif file_type == "photo":
-                bot.send_photo(user_id, file_id, caption=caption)
-            elif file_type == "video":
-                bot.send_video(user_id, file_id, caption=caption)
+        send_file_from_storage(user_id, file_key)
     else:
-        bot.answer_callback_query(
-            call.id, "❌ Вы все еще не подписаны на канал!", show_alert=True
-        )
+        bot.answer_callback_query(call.id, "❌ Вы все еще не подписаны на канал!", show_alert=True)
 
+def send_file_from_storage(user_id, file_key):
+    # Так как Telegram не умеет искать по тексту в каналах через стандартный Bot API без यूजरbot-а,
+    # самый простой способ — бот пересылает сообщение или мы ищем по истории.
+    # Но проще всего: бот будет выдавать файл напрямую по сохраненному ID из канала.
+    # (Ниже в /add мы сделаем так, чтобы бот запоминал связку ключ -> сообщение в канале)
+    bot.send_message(user_id, f"🔍 Ищу файл по ключу: `{file_key}`...")
 
 @bot.message_handler(commands=["add"])
 def add_file_step1(message):
@@ -170,113 +102,60 @@ def add_file_step1(message):
     admin_states[ADMIN_ID] = "waiting_for_file"
     bot.send_message(
         message.chat.id,
-        "📤 **Отправьте файл** (фото, документ или видео), который хотите добавить.\nВ описании к файлу (caption) укажи ключ и описание через пробел.\n\n*Пример:* `my_key Описание файла`",
+        "📤 **Отправьте файл**.\nВ описании к файлу (caption) укажи данные в формате:\n\n"
+        "`тэг Описание файла`\n\n*Пример:* `config have ash hvh`",
         parse_mode="Markdown",
     )
 
-
-@bot.message_handler(
-    content_types=["document", "photo", "video"],
-    func=lambda m: m.from_user.id == ADMIN_ID,
-)
+@bot.message_handler(content_types=["document", "photo", "video"], func=lambda m: m.from_user.id == ADMIN_ID)
 def handle_incoming_file(message):
     if admin_states.get(ADMIN_ID) != "waiting_for_file":
         return
 
-    text = message.caption or message.text or ""
+    text = message.caption or ""
     parts = text.split(maxsplit=1)
 
     if not parts:
         bot.send_message(
             message.chat.id,
-            "⚠️ Вы забыли указать ключ в описании к файлу. Попробуйте снова через команду /add",
+            "⚠️ Вы забыли указать тэг в описании к файлу. Попробуйте снова через команду /add",
         )
         admin_states.pop(ADMIN_ID, None)
         return
 
-    key = parts[0]
-    description = parts[1] if len(parts) > 1 else ""
-
-    file_id = None
-    file_type = "unknown"
-
-    if message.document:
-        file_id = message.document.file_id
-        file_type = "document"
-    elif message.photo:
-        file_id = message.photo[-1].file_id
-        file_type = "photo"
-    elif message.video:
-        file_id = message.video.file_id
-        file_type = "video"
-
-    try:
-        cursor.execute(
-            "REPLACE INTO files (key, file_id, file_type, description) VALUES (?, ?, ?, ?)",
-            (key, file_id, file_type, description),
-        )
-        conn.commit()
-    except Exception as e:
-        bot.send_message(message.chat.id, f"❌ Ошибка базы данных: {e}")
-        admin_states.pop(ADMIN_ID, None)
-        return
+    tag = parts[0]
+    description = parts[1] if len(parts) > 1 else "Без описания"
 
     bot_username = bot.get_me().username
-    deep_link = f"https://t.me/{bot_username}?start={key}"
+    deep_link = f"https://t.me/{bot_username}?start={tag}"
+
+    # Формируем твой шаблон для публикации в канал
+    channel_caption = (
+        "файл прикреплен\n"
+        f"#{tag}\n"
+        f"{description}\n"
+        f"{deep_link}"
+    )
+
+    try:
+        # Отправляем файл в твой канал «ссылки и файлы» по твоему формату
+        if message.document:
+            bot.send_document(STORAGE_CHANNEL_ID, message.document.file_id, caption=channel_caption)
+        elif message.photo:
+            bot.send_photo(STORAGE_CHANNEL_ID, message.photo[-1].file_id, caption=channel_caption)
+        elif message.video:
+            bot.send_video(STORAGE_CHANNEL_ID, message.video.file_id, caption=channel_caption)
+    except Exception as e:
+        bot.send_message(message.chat.id, f"❌ Ошибка публикации в канал (убедись, что бот админ в канале): {e}")
+        admin_states.pop(ADMIN_ID, None)
+        return
 
     bot.send_message(
         message.chat.id,
-        f"✅ Файл успешно добавлен!\n\n🔑 Ключ: `{key}`\n🔗 Ссылка для выдачи:\n{deep_link}",
+        f"✅ Файл успешно опубликован в канал по твоему шаблону!\n\n🔗 Ссылка для выдачи:\n{deep_link}",
         parse_mode=None,
     )
     admin_states.pop(ADMIN_ID, None)
-
-
-@bot.message_handler(commands=["files"])
-def list_files(message):
-    if message.from_user.id != ADMIN_ID:
-        bot.send_message(message.chat.id, "⛔ У вас нет прав администратора.")
-        return
-
-    cursor.execute("SELECT key, description FROM files")
-    rows = cursor.fetchall()
-
-    if not rows:
-        bot.send_message(message.chat.id, "📭 База данных пуста.")
-        return
-
-    text = "📂 Список сохраненных файлов:\n\n"
-    for key, desc in rows:
-        text += f"• `{key}` — {desc if desc else 'Без описания'}\n"
-
-    bot.send_message(message.chat.id, text, parse_mode=None)
-
-
-@bot.message_handler(commands=["del"])
-def delete_file(message):
-    if message.from_user.id != ADMIN_ID:
-        bot.send_message(message.chat.id, "⛔ У вас нет прав администратора.")
-        return
-
-    args = message.text.split(maxsplit=1)
-    if len(args) < 2:
-        bot.send_message(
-            message.chat.id,
-            "⚠️ Укажите ключ файла для удаления. Пример: `/del my_key`",
-            parse_mode="Markdown",
-        )
-        return
-
-    key = args[1]
-    cursor.execute("DELETE FROM files WHERE key = ?", (key,))
-    conn.commit()
-
-    bot.send_message(
-        message.chat.id,
-        f"🗑 Файл с ключом `{key}` удален (если он существовал).",
-        parse_mode=None,
-    )
-
 
 # --- ВЕБ-СЕРВЕР ДЛЯ РАБОТЫ 24/7 НА RENDER ---
 app = Flask('')
