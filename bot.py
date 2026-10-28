@@ -88,7 +88,7 @@ def add_file_step1(message):
     if message.from_user.id != ADMIN_ID:
         return
     admin_states[ADMIN_ID] = "waiting_for_file"
-    bot.send_message(message.chat.id, "📤 Отправь файл, указав тег в описании (например: `hmscore`)", parse_mode="Markdown")
+    bot.send_message(message.chat.id, "📤 Отправь файл с тегом в описании (например: `hmscore`)", parse_mode="Markdown")
 
 @bot.message_handler(content_types=["document", "photo", "video"], func=lambda m: m.from_user.id == ADMIN_ID)
 def handle_incoming_file(message):
