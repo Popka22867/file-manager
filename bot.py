@@ -88,7 +88,7 @@ def add_file_step1(message):
     if message.from_user.id != ADMIN_ID:
         return
     admin_states[ADMIN_ID] = "waiting_for_file"
-    bot.send_message(message.chat.id, "📤 Отправь файл с тегом в описании (например: `hmscore`)", parse_mode="Markdown")
+    bot.send_message(message.chat.id, "📤 Отправь файл с тегом и описанием (например: `ttrgreentrust Текст описания`)", parse_mode="Markdown")
 
 @bot.message_handler(content_types=["document", "photo", "video"], func=lambda m: m.from_user.id == ADMIN_ID)
 def handle_incoming_file(message):
@@ -103,13 +103,25 @@ def handle_incoming_file(message):
         return
 
     tag = parts[0].strip()
+    user_description = parts[1] if len(parts) > 1 else ""
+    
     bot_username = bot.get_me().username
     deep_link = f"https://t.me/{bot_username}?start={tag}"
 
-    channel_caption = f"#{tag}\n🔗 {deep_link}"
+    # Формируем красивый текст: хэштег сверху, описание посередине, ссылка снизу
+    channel_caption = f"#{tag}\n\n{user_description}\n\n🔗 {deep_link}"
 
     try:
-        sent_msg = bot.copy_message(STORAGE_CHANNEL_ID, message.chat.id, message.message_id, caption=channel_caption)
+        # Отправляем в канал картинку/файл с новым текстом вместо старого
+        if message.content_type == "photo":
+            sent_msg = bot.send_photo(STORAGE_CHANNEL_ID, message.photo[-1].file_id, caption=channel_caption)
+        elif message.content_type == "document":
+            sent_msg = bot.send_document(STORAGE_CHANNEL_ID, message.document.file_id, caption=channel_caption)
+        elif message.content_type == "video":
+            sent_msg = bot.send_video(STORAGE_CHANNEL_ID, message.video.file_id, caption=channel_caption)
+        else:
+            sent_msg = bot.copy_message(STORAGE_CHANNEL_ID, message.chat.id, message.message_id, caption=channel_caption)
+
         file_data = {"msg_id": sent_msg.message_id}
         save_mapping(tag, file_data)
     except Exception as e:
