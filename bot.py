@@ -1,14 +1,16 @@
 import json
 import os
+import random
 from threading import Thread
 import telebot
-from telebot.types import BotCommand, InlineKeyboardButton, InlineKeyboardMarkup
+from telebot.types import BotCommand, InlineKeyboardButton, InlineKeyboardMarkup, InputMediaPhoto, MenuButtonWebApp, WebAppInfo
 from flask import Flask
 
-TOKEN = "8847975926:AAG-8PMus6O_LYWVFYWKpRgYEg0F4jhNHuo"
+TOKEN = "8847975926:AAG0EWp3mUHEO9w817OMupWlMerz2XmDQ7E"
 ADMIN_ID = 6795794125
 STORAGE_CHANNEL_ID = -1003931200359
 FEEDBACK_BOT_URL = "https://t.me/feedbackls_bot"
+SITE_URL = "https://popka22867.github.io/Adapter/"
 
 bot = telebot.TeleBot(TOKEN)
 
@@ -22,8 +24,13 @@ bot.set_my_commands([
 
 admin_states = {}
 
+def set_bot_menu_button():
+    try:
+        bot.set_chat_menu_button(menu_button=MenuButtonWebApp(text="My site", web_app=WebAppInfo(url=SITE_URL)))
+    except Exception as e:
+        print(f"Ошибка установки кнопки меню: {e}")
+
 def load_mapping():
-    """Загружает базу данных из закрепленного TXT-файла в канале"""
     try:
         chat = bot.get_chat(STORAGE_CHANNEL_ID)
         if chat.pinned_message and chat.pinned_message.document:
@@ -42,7 +49,6 @@ def load_mapping():
     return {}
 
 def save_mapping_data(mapping):
-    """Сохраняет базу в TXT, отправляет в канал, закрепляет и удаляет старое"""
     try:
         with open("database.txt", "w", encoding="utf-8") as f:
             json.dump(mapping, f, ensure_ascii=False, indent=4)
@@ -73,13 +79,28 @@ def save_mapping_data(mapping):
     except Exception as e:
         print(f"Ошибка сохранения базы в канал: {e}")
 
+def get_start_keyboard():
+    markup = InlineKeyboardMarkup(row_width=2)
+    btn_channel = InlineKeyboardButton("📢 Наш канал", url="https://t.me/goat1488_67")
+    btn_profile = InlineKeyboardButton("⚙️ Профиль", callback_data="open_profile")
+    btn_feedback = InlineKeyboardButton("👤 Обратная связь", url=FEEDBACK_BOT_URL)
+    
+    markup.add(btn_channel, btn_profile)
+    markup.add(btn_feedback)
+    return markup
+
+def get_profile_keyboard():
+    markup = InlineKeyboardMarkup(row_width=1)
+    btn_back = InlineKeyboardButton("🔙 Назад к файлам", callback_data="back_to_main")
+    markup.add(btn_back)
+    return markup
+
 @bot.message_handler(commands=["start"])
 def send_welcome(message):
     args = message.text.split()
     if len(args) > 1:
         file_key = args[1]
         
-        # Увеличиваем счетчик скачиваний
         mapping = load_mapping()
         if file_key in mapping:
             if "downloads" not in mapping[file_key]:
@@ -92,16 +113,80 @@ def send_welcome(message):
             bot.send_message(message.chat.id, "❌ Файл не найден.")
         return
 
-    markup = InlineKeyboardMarkup()
-    btn_ls = InlineKeyboardButton("👤 Мое ЛС", url=FEEDBACK_BOT_URL)
-    markup.add(btn_ls)
-
-    caption_text = "👋 Привет!\n\n👀 Твой личный файловый менеджер"
+    caption_text = (
+        "👋 Привет!\n\n"
+        "💬 Я храню файлы с канала @goat1488_67!\n\n"
+        "🔽 Используй кнопки ниже для навигации"
+    )
+    
     try:
-        with open("god.png", "rb") as photo:
-            bot.send_photo(message.chat.id, photo, caption=caption_text, reply_markup=markup)
+        with open("1.png", "rb") as photo:
+            bot.send_photo(message.chat.id, photo, caption=caption_text, reply_markup=get_start_keyboard())
     except Exception:
-        bot.send_message(message.chat.id, caption_text, reply_markup=markup)
+        bot.send_message(message.chat.id, caption_text, reply_markup=get_start_keyboard())
+
+@bot.callback_query_handler(func=lambda call: True)
+def handle_callback_query(call):
+    user = call.from_user
+    chat_id = call.message.chat.id
+    message_id = call.message.message_id
+    
+    if call.data == "open_profile":
+        first_name = user.first_name
+        user_id = user.id
+        username = f"@{user.username}" if user.username else "—"
+        
+        mapping = load_mapping()
+        total_downloads = sum(item.get("downloads", 0) for item in mapping.values())
+
+        profile_caption = (
+            f"👤 Профиль\n\n"
+            f"🆔 ID: `{user_id}`\n"
+            f"👤 Имя: {first_name}\n"
+            f"👤 Username: {username}\n"
+            f"📥 Всего скачиваний в боте: {total_downloads}"
+        )
+        
+        try:
+            with open("2.jpg", "rb") as photo:
+                bot.edit_message_media(
+                    media=InputMediaPhoto(photo.read(), caption=profile_caption, parse_mode="Markdown"),
+                    chat_id=chat_id,
+                    message_id=message_id,
+                    reply_markup=get_profile_keyboard()
+                )
+        except Exception:
+            bot.edit_message_caption(
+                caption=profile_caption,
+                chat_id=chat_id,
+                message_id=message_id,
+                reply_markup=get_profile_keyboard(),
+                parse_mode="Markdown"
+            )
+        bot.answer_callback_query(call.id)
+
+    elif call.data == "back_to_main":
+        caption_text = (
+            "👋 Привет!\n\n"
+            "💬 Я храню файлы с канала @goat1488_67!\n\n"
+            "🔽 Используй кнопки ниже для навигации"
+        )
+        try:
+            with open("1.png", "rb") as photo:
+                bot.edit_message_media(
+                    media=InputMediaPhoto(photo.read(), caption=caption_text),
+                    chat_id=chat_id,
+                    message_id=message_id,
+                    reply_markup=get_start_keyboard()
+                )
+        except Exception:
+            bot.edit_message_caption(
+                caption=caption_text,
+                chat_id=chat_id,
+                message_id=message_id,
+                reply_markup=get_start_keyboard()
+            )
+        bot.answer_callback_query(call.id)
 
 def send_file_to_user(chat_id, file_key):
     mapping = load_mapping()
@@ -114,7 +199,6 @@ def send_file_to_user(chat_id, file_key):
             pass
     bot.send_message(chat_id, "❌ Файл не найден.")
 
-# --- ДОБАВЛЕНИЕ ФАЙЛА ---
 @bot.message_handler(commands=["add"])
 def add_file_step1(message):
     if message.from_user.id != ADMIN_ID:
@@ -126,7 +210,6 @@ def add_file_step1(message):
         parse_mode="Markdown"
     )
 
-# --- РЕДАКТИРОВАНИЕ ФАЙЛА ---
 @bot.message_handler(commands=["edit"])
 def edit_file_step1(message):
     if message.from_user.id != ADMIN_ID:
@@ -231,7 +314,6 @@ def handle_incoming_file(message):
 
     admin_states.pop(ADMIN_ID, None)
 
-# --- СПИСОК ФАЙЛОВ И СТАТИСТИКА ---
 @bot.message_handler(commands=["files"])
 def list_files(message):
     if message.from_user.id != ADMIN_ID:
@@ -251,7 +333,6 @@ def list_files(message):
 
     bot.send_message(message.chat.id, text)
 
-# --- УДАЛЕНИЕ ФАЙЛА ---
 @bot.message_handler(commands=["del"])
 def delete_file(message):
     if message.from_user.id != ADMIN_ID:
@@ -276,7 +357,6 @@ def delete_file(message):
     else:
         bot.send_message(message.chat.id, f"❌ Файл с тегом `{tag}` не найден.")
 
-# --- FLASK ДЛЯ RENDER (Keep-Alive) ---
 app = Flask('')
 
 @app.route('/')
@@ -288,6 +368,7 @@ def run_web():
     app.run(host="0.0.0.0", port=port)
 
 if __name__ == "__main__":
+    set_bot_menu_button()
     t = Thread(target=run_web)
     t.start()
     bot.infinity_polling()
