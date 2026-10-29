@@ -6,7 +6,7 @@ import telebot
 from telebot.types import BotCommand, InlineKeyboardButton, InlineKeyboardMarkup, InputMediaPhoto, MenuButtonWebApp, WebAppInfo
 from flask import Flask
 
-TOKEN = "8847975926:AAG0EWp3mUHEO9w817OMupWlMerz2XmDQ7E"
+TOKEN = "8847975926:AAHhCaIevTIPpwJcDxyHe3BdDKcNZ-1QyUs"
 ADMIN_ID = 6795794125
 STORAGE_CHANNEL_ID = -1003931200359
 FEEDBACK_BOT_URL = "https://t.me/feedbackls_bot"
