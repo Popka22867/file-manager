@@ -11,7 +11,7 @@ import telebot
 from telebot.types import BotCommand, InlineKeyboardButton, InlineKeyboardMarkup, InputMediaPhoto, MenuButtonWebApp, WebAppInfo
 from flask import Flask
 
-TOKEN = "8847975926:AAGb-riv-IAsPYYbTvSSjQMKUIfcfvIZCgI"
+TOKEN = "8847975926:AAEW5oBm5_1bIbtdvGpRgRxq3c3a3bAhuLA"
 ADMIN_ID = 6795794125
 STORAGE_CHANNEL_ID = -1003931200359
 FEEDBACK_BOT_URL = "https://t.me/feedbackls_bot"
@@ -521,7 +521,10 @@ def handle_callback_query(call):
             mapping[tag] = {"msg_id": sent_msg.message_id, "downloads": 0, "desc": user_description}
             save_mapping_data(mapping)
 
-            bot.edit_message_caption(chat_id=chat_id, message_id=message_id, caption=f"{caption}\n\n✅ ОДОБРЕНО", parse_mode="Markdown")
+            if call.message.caption:
+                bot.edit_message_caption(chat_id=chat_id, message_id=message_id, caption=f"{caption}\n\n✅ ОДОБРЕНО", parse_mode="Markdown")
+            else:
+                bot.edit_message_text(chat_id=chat_id, message_id=message_id, text="✅ ОДОБРЕНО")
             bot.send_message(target_user_id, "✅ Администрация одобрила ваш файл!")
         except Exception as e:
             bot.send_message(chat_id, f"❌ Ошибка при одобрении: {e}")
@@ -531,10 +534,13 @@ def handle_callback_query(call):
         parts = call.data.split("_")
         target_user_id = int(parts[2])
         try:
-            bot.edit_message_caption(chat_id=chat_id, message_id=message_id, caption=f"{call.message.caption}\n\n❌ ОТКЛОНЕНО", parse_mode="Markdown")
+            if call.message.caption:
+                bot.edit_message_caption(chat_id=chat_id, message_id=message_id, caption=f"{call.message.caption}\n\n❌ ОТКЛОНЕНО", parse_mode="Markdown")
+            else:
+                bot.edit_message_text(chat_id=chat_id, message_id=message_id, text="❌ ОТКЛОНЕНО")
             bot.send_message(target_user_id, "❌ Администрация отклонила ваш файл.")
-        except:
-            pass
+        except Exception as e:
+            print(f"Ошибка отклонения: {e}")
         bot.answer_callback_query(call.id, "Заявка отклонена.")
 
     elif call.data.startswith("edit_approve_suggest_"):
@@ -841,7 +847,10 @@ def handle_incoming_file(message):
             mapping[tag] = {"msg_id": sent_msg.message_id, "downloads": 0, "desc": user_description}
             save_mapping_data(mapping)
 
-            bot.edit_message_caption(chat_id=ADMIN_ID, message_id=msg_id_to_edit, caption=f"{orig_msg.caption}\n\n✅ ОДОБРЕНО И ИЗМЕНЕНО", parse_mode="Markdown")
+            if orig_msg.caption:
+                bot.edit_message_caption(chat_id=ADMIN_ID, message_id=msg_id_to_edit, caption=f"{orig_msg.caption}\n\n✅ ОДОБРЕНО И ИЗМЕНЕНО", parse_mode="Markdown")
+            else:
+                bot.edit_message_text(chat_id=ADMIN_ID, message_id=msg_id_to_edit, text="✅ ОДОБРЕНО И ИЗМЕНЕНО")
             bot.send_message(target_user_id, f"✅ Администрация одобрила и добавила ваш файл по ссылке: {deep_link}")
         except Exception as e:
             bot.send_message(ADMIN_ID, f"❌ Ошибка: {e}")
@@ -856,7 +865,10 @@ def handle_incoming_file(message):
         reason = text.strip()
 
         try:
-            bot.edit_message_caption(chat_id=ADMIN_ID, message_id=msg_id_to_edit, caption=f"{orig_msg.caption}\n\n❌ ОТКЛОНЕНО: {reason}", parse_mode="Markdown")
+            if orig_msg.caption:
+                bot.edit_message_caption(chat_id=ADMIN_ID, message_id=msg_id_to_edit, caption=f"{orig_msg.caption}\n\n❌ ОТКЛОНЕНО: {reason}", parse_mode="Markdown")
+            else:
+                bot.edit_message_text(chat_id=ADMIN_ID, message_id=msg_id_to_edit, text=f"❌ ОТКЛОНЕНО: {reason}")
             bot.send_message(target_user_id, f"❌ Администрация отклонила ваш файл.\nПричина: {reason}")
             bot.send_message(ADMIN_ID, "✅ Уведомление об отклонении с причиной отправлено пользователю.")
         except Exception as e:
@@ -876,7 +888,6 @@ def handle_incoming_file(message):
         user_description = parts[1] if len(parts) > 1 else ""
         user_name = message.from_user.first_name
         
-        # Ссылка на ID пользователя (кликабельная)
         forward_caption = f"#{tag}\n\n{user_description}\n\nПредложил: [{user_name}](tg://user?id={user_id})"
         
         markup = InlineKeyboardMarkup(row_width=2)
@@ -910,17 +921,14 @@ def handle_incoming_file(message):
             admin_states.pop(user_id, None)
             return
             
-        # Проверка: если прислали ссылку (текст), проверяем её через VT URL API
         if message.content_type == "text" and (text.startswith("http://") or text.startswith("https://")):
             bot.send_message(message.chat.id, "🛡 Проверяем ссылку в VirusTotal, подождите...")
             try:
                 headers = {'x-apikey': VT_API_KEY}
-                # В VirusTotal API v3 для ссылок используется base64url-кодирование URL без паддинга (=)
                 url_bytes = text.encode("utf-8")
                 url_id = base64.urlsafe_b64encode(url_bytes).decode("utf-8").strip("=")
                 
                 response = requests.post('https://www.virustotal.com/api/v3/urls', data={'url': text}, headers=headers, timeout=15)
-                
                 report_url = f"https://www.virustotal.com/gui/url/{url_id}"
                 
                 if response.status_code in [200, 201]:
@@ -933,7 +941,6 @@ def handle_incoming_file(message):
             admin_states.pop(user_id, None)
             return
 
-        # Иначе проверяем как файл (документ или фото)
         if message.document or message.photo:
             bot.send_message(message.chat.id, "🛡 Отправляем файл на проверку в VirusTotal, подождите...")
             try:
@@ -944,7 +951,6 @@ def handle_incoming_file(message):
                 headers = {'x-apikey': VT_API_KEY}
                 
                 response = requests.post('https://www.virustotal.com/api/v3/files', files=files, headers=headers, timeout=15)
-                
                 file_hash = hashlib.sha256(downloaded_file).hexdigest()
                 report_url = f"https://www.virustotal.com/gui/file/{file_hash}"
                 
