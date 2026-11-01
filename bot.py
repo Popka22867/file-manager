@@ -4,13 +4,14 @@ import random
 import time
 import io
 import hashlib
+import base64
 from threading import Thread
 import requests
 import telebot
 from telebot.types import BotCommand, InlineKeyboardButton, InlineKeyboardMarkup, InputMediaPhoto, MenuButtonWebApp, WebAppInfo
 from flask import Flask
 
-TOKEN = "8847975926:AAFbJdn3YKWLarUEddyXvYLetoqkDNVDygM"
+TOKEN = "8847975926:AAEQykC-A-k5epN1ujmbENhjiovgtmoY03s"
 ADMIN_ID = 6795794125
 STORAGE_CHANNEL_ID = -1003931200359
 FEEDBACK_BOT_URL = "https://t.me/feedbackls_bot"
@@ -232,7 +233,7 @@ def help_cmd(message):
             "/update_db — Обновить базу описаний\n"
             "/links — Управление каналами подписки\n"
             "/suggest — Предложить файл\n"
-            "/check_vt — Проверить файл через VirusTotal\n"
+            "/check_vt — Проверить файл или ссылку через VT\n"
             "/help — Список команд"
         )
     else:
@@ -240,7 +241,7 @@ def help_cmd(message):
             "📋 Доступные команды:\n\n"
             "/start — Запустить бота\n"
             "/suggest — Предложить файл в базу\n"
-            "/check_vt — Проверить файл через VirusTotal\n"
+            "/check_vt — Проверить файл или ссылку через VT\n"
             "/help — Список команд"
         )
     bot.send_message(message.chat.id, text)
@@ -274,7 +275,7 @@ def suggest_cmd(message):
 def check_vt_cmd(message):
     user_id = message.from_user.id
     admin_states[user_id] = {"action": "check_vt_file"}
-    bot.send_message(message.chat.id, "🛡 Отправьте файл для проверки через VirusTotal (весом до 20 МБ):")
+    bot.send_message(message.chat.id, "🛡 Отправьте файл (до 20 МБ) или текстовую ссылку для проверки через VirusTotal:")
 
 @bot.message_handler(commands=["update_db"])
 def update_database_cmd(message):
@@ -480,7 +481,7 @@ def handle_callback_query(call):
                 "/update_db — Обновить базу описаний\n"
                 "/links — Управление каналами подписки\n"
                 "/suggest — Предложить файл\n"
-                "/check_vt — Проверить файл через VirusTotal\n"
+                "/check_vt — Проверить файл или ссылку через VT\n"
                 "/help — Список команд"
             )
         else:
@@ -488,7 +489,7 @@ def handle_callback_query(call):
                 "📋 Доступные команды:\n\n"
                 "/start — Запустить бота\n"
                 "/suggest — Предложить файл в базу\n"
-                "/check_vt — Проверить файл через VirusTotal\n"
+                "/check_vt — Проверить файл или ссылку через VT\n"
                 "/help — Список команд"
             )
         bot.send_message(chat_id, text)
@@ -520,7 +521,7 @@ def handle_callback_query(call):
             mapping[tag] = {"msg_id": sent_msg.message_id, "downloads": 0, "desc": user_description}
             save_mapping_data(mapping)
 
-            bot.edit_message_caption(chat_id=chat_id, message_id=message_id, caption=f"{caption}\n\n✅ ОДОБРЕНО")
+            bot.edit_message_caption(chat_id=chat_id, message_id=message_id, caption=f"{caption}\n\n✅ ОДОБРЕНО", parse_mode="Markdown")
             bot.send_message(target_user_id, "✅ Администрация одобрила ваш файл!")
         except Exception as e:
             bot.send_message(chat_id, f"❌ Ошибка при одобрении: {e}")
@@ -530,7 +531,7 @@ def handle_callback_query(call):
         parts = call.data.split("_")
         target_user_id = int(parts[2])
         try:
-            bot.edit_message_caption(chat_id=chat_id, message_id=message_id, caption=f"{call.message.caption}\n\n❌ ОТКЛОНЕНО")
+            bot.edit_message_caption(chat_id=chat_id, message_id=message_id, caption=f"{call.message.caption}\n\n❌ ОТКЛОНЕНО", parse_mode="Markdown")
             bot.send_message(target_user_id, "❌ Администрация отклонила ваш файл.")
         except:
             pass
@@ -840,7 +841,7 @@ def handle_incoming_file(message):
             mapping[tag] = {"msg_id": sent_msg.message_id, "downloads": 0, "desc": user_description}
             save_mapping_data(mapping)
 
-            bot.edit_message_caption(chat_id=ADMIN_ID, message_id=msg_id_to_edit, caption=f"{orig_msg.caption}\n\n✅ ОДОБРЕНО И ИЗМЕНЕНО")
+            bot.edit_message_caption(chat_id=ADMIN_ID, message_id=msg_id_to_edit, caption=f"{orig_msg.caption}\n\n✅ ОДОБРЕНО И ИЗМЕНЕНО", parse_mode="Markdown")
             bot.send_message(target_user_id, f"✅ Администрация одобрила и добавила ваш файл по ссылке: {deep_link}")
         except Exception as e:
             bot.send_message(ADMIN_ID, f"❌ Ошибка: {e}")
@@ -855,7 +856,7 @@ def handle_incoming_file(message):
         reason = text.strip()
 
         try:
-            bot.edit_message_caption(chat_id=ADMIN_ID, message_id=msg_id_to_edit, caption=f"{orig_msg.caption}\n\n❌ ОТКЛОНЕНО: {reason}")
+            bot.edit_message_caption(chat_id=ADMIN_ID, message_id=msg_id_to_edit, caption=f"{orig_msg.caption}\n\n❌ ОТКЛОНЕНО: {reason}", parse_mode="Markdown")
             bot.send_message(target_user_id, f"❌ Администрация отклонила ваш файл.\nПричина: {reason}")
             bot.send_message(ADMIN_ID, "✅ Уведомление об отклонении с причиной отправлено пользователю.")
         except Exception as e:
@@ -875,7 +876,8 @@ def handle_incoming_file(message):
         user_description = parts[1] if len(parts) > 1 else ""
         user_name = message.from_user.first_name
         
-        forward_caption = f"#{tag}\n\n{user_description}\n\nПредложил: {user_name}"
+        # Ссылка на ID пользователя (кликабельная)
+        forward_caption = f"#{tag}\n\n{user_description}\n\nПредложил: [{user_name}](tg://user?id={user_id})"
         
         markup = InlineKeyboardMarkup(row_width=2)
         markup.add(
@@ -887,13 +889,13 @@ def handle_incoming_file(message):
 
         try:
             if message.content_type == "photo":
-                bot.send_photo(ADMIN_ID, message.photo[-1].file_id, caption=forward_caption, reply_markup=markup)
+                bot.send_photo(ADMIN_ID, message.photo[-1].file_id, caption=forward_caption, reply_markup=markup, parse_mode="Markdown")
             elif message.content_type == "document":
-                bot.send_document(ADMIN_ID, message.document.file_id, caption=forward_caption, reply_markup=markup)
+                bot.send_document(ADMIN_ID, message.document.file_id, caption=forward_caption, reply_markup=markup, parse_mode="Markdown")
             elif message.content_type == "video":
-                bot.send_video(ADMIN_ID, message.video.file_id, caption=forward_caption, reply_markup=markup)
+                bot.send_video(ADMIN_ID, message.video.file_id, caption=forward_caption, reply_markup=markup, parse_mode="Markdown")
             else:
-                bot.copy_message(ADMIN_ID, message.chat.id, message.message_id, caption=forward_caption, reply_markup=markup)
+                bot.copy_message(ADMIN_ID, message.chat.id, message.message_id, caption=forward_caption, reply_markup=markup, parse_mode="Markdown")
 
             bot.send_message(message.chat.id, "✅ Ваш файл успешно отправлен администратору на рассмотрение!")
         except Exception as e:
@@ -908,30 +910,57 @@ def handle_incoming_file(message):
             admin_states.pop(user_id, None)
             return
             
-        bot.send_message(message.chat.id, "🛡 Отправляем файл на проверку в VirusTotal, подождите...")
-        try:
-            file_info = bot.get_file(message.document.file_id if message.document else message.photo[-1].file_id)
-            downloaded_file = bot.download_file(file_info.file_path)
-            
-            files = {'file': (message.document.file_name if message.document else "file.bin", downloaded_file)}
-            headers = {'x-apikey': VT_API_KEY}
-            
-            response = requests.post('https://www.virustotal.com/api/v3/files', files=files, headers=headers, timeout=15)
-            
-            file_hash = hashlib.sha256(downloaded_file).hexdigest()
-            report_url = f"https://www.virustotal.com/gui/file/{file_hash}"
-            
-            if response.status_code == 200:
-                bot.send_message(message.chat.id, f"✅ Файл успешно отправлен на проверку!\n\n🔗 Отчет VirusTotal: {report_url}")
-            else:
-                err_data = response.json()
-                err_code = err_data.get("error", {}).get("code", "")
-                if err_code == "AlreadySubmittedError":
-                    bot.send_message(message.chat.id, f"ℹ️ Этот файл уже есть в базе VirusTotal!\n\n🔗 Отчет: {report_url}")
+        # Проверка: если прислали ссылку (текст), проверяем её через VT URL API
+        if message.content_type == "text" and (text.startswith("http://") or text.startswith("https://")):
+            bot.send_message(message.chat.id, "🛡 Проверяем ссылку в VirusTotal, подождите...")
+            try:
+                headers = {'x-apikey': VT_API_KEY}
+                # В VirusTotal API v3 для ссылок используется base64url-кодирование URL без паддинга (=)
+                url_bytes = text.encode("utf-8")
+                url_id = base64.urlsafe_b64encode(url_bytes).decode("utf-8").strip("=")
+                
+                response = requests.post('https://www.virustotal.com/api/v3/urls', data={'url': text}, headers=headers, timeout=15)
+                
+                report_url = f"https://www.virustotal.com/gui/url/{url_id}"
+                
+                if response.status_code in [200, 201]:
+                    bot.send_message(message.chat.id, f"✅ Ссылка успешно проверена!\n\n🔗 Отчет VirusTotal: {report_url}")
                 else:
-                    bot.send_message(message.chat.id, f"❌ Ошибка загрузки в VirusTotal: {response.text}")
-        except Exception as e:
-            bot.send_message(message.chat.id, f"❌ Произошла ошибка при проверке: {e}")
+                    bot.send_message(message.chat.id, f"ℹ️ Ссылка обработана в VirusTotal.\n\n🔗 Отчет: {report_url}")
+            except Exception as e:
+                bot.send_message(message.chat.id, f"❌ Ошибка проверки ссылки: {e}")
+            
+            admin_states.pop(user_id, None)
+            return
+
+        # Иначе проверяем как файл (документ или фото)
+        if message.document or message.photo:
+            bot.send_message(message.chat.id, "🛡 Отправляем файл на проверку в VirusTotal, подождите...")
+            try:
+                file_info = bot.get_file(message.document.file_id if message.document else message.photo[-1].file_id)
+                downloaded_file = bot.download_file(file_info.file_path)
+                
+                files = {'file': (message.document.file_name if message.document else "file.bin", downloaded_file)}
+                headers = {'x-apikey': VT_API_KEY}
+                
+                response = requests.post('https://www.virustotal.com/api/v3/files', files=files, headers=headers, timeout=15)
+                
+                file_hash = hashlib.sha256(downloaded_file).hexdigest()
+                report_url = f"https://www.virustotal.com/gui/file/{file_hash}"
+                
+                if response.status_code == 200:
+                    bot.send_message(message.chat.id, f"✅ Файл успешно отправлен на проверку!\n\n🔗 Отчет VirusTotal: {report_url}")
+                else:
+                    err_data = response.json()
+                    err_code = err_data.get("error", {}).get("code", "")
+                    if err_code == "AlreadySubmittedError":
+                        bot.send_message(message.chat.id, f"ℹ️ Этот файл уже есть в базе VirusTotal!\n\n🔗 Отчет: {report_url}")
+                    else:
+                        bot.send_message(message.chat.id, f"❌ Ошибка загрузки в VirusTotal: {response.text}")
+            except Exception as e:
+                bot.send_message(message.chat.id, f"❌ Произошла ошибка при проверке: {e}")
+        else:
+            bot.send_message(message.chat.id, "⚠️ Пожалуйста, отправьте файл или валидную ссылку (начинающуюся с http:// или https://).")
             
         admin_states.pop(user_id, None)
         return
