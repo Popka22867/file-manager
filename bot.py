@@ -275,7 +275,7 @@ def suggest_cmd(message):
 def check_vt_cmd(message):
     user_id = message.from_user.id
     admin_states[user_id] = {"action": "check_vt_file"}
-    bot.send_message(message.chat.id, "🛡 Отправьте файл (до 20 МБ) или текстовую ссылку для проверки через VirusTotal:")
+    bot.send_message(message.chat.id, "🛡 Отправьте файл (до 650 МБ) или текстовую ссылку для проверки через VirusTotal:")
 
 @bot.message_handler(commands=["update_db"])
 def update_database_cmd(message):
