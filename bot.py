@@ -1458,11 +1458,6 @@ def handle_incoming_file(message):
         return
 
     mapping = load_mapping()
-    MAX_FILE_SIZE = 50 * 1024 * 1024
-    if message.document and message.document.file_size and message.document.file_size > MAX_FILE_SIZE:
-        bot.send_message(message.chat.id, get_text(user_id, "file_too_large", mapping))
-        admin_states.pop(user_id, None)
-        return
 
     text = message.caption or message.text or ""
 
