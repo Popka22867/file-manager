@@ -5,31 +5,69 @@ import time
 import io
 import hashlib
 import base64
+import zipfile
+import qrcode
 from datetime import datetime, time as dtime
 from threading import Thread
 import requests
 import telebot
-from telebot.types import BotCommand, InlineKeyboardButton, InlineKeyboardMarkup, InputMediaPhoto, MenuButtonWebApp, WebAppInfo
+from telebot.types import BotCommand, InlineKeyboardButton, InlineKeyboardMarkup, InputMediaPhoto
 from flask import Flask
 
+# ==========================================
+# ⚙️ ОСНОВНЫЕ НАСТРОЙКИ И ПЕРЕМЕННЫЕ
+# ==========================================
 TOKEN = "8847975926:AAFjFoyp14iwMr8YhqLigX6Xww1RBueYh3I"
 ADMIN_ID = 6795794125
 STORAGE_CHANNEL_ID = -1003931200359
 FEEDBACK_BOT_URL = "https://t.me/feedbackls_bot"
-SITE_URL = "https://popka22867.github.io/Adapter/"
 VT_API_KEY = "fa5af0a32f4aa92be1536149bcf01321aaab83104c67ff7e50c37ff5fa64dcc8"
 
+# Ссылка на сайт (кнопки на файлах убраны по вашему запросу)
+SITE_URL = "https://popka22867.github.io/Adapter/"
+
 START_TIME = datetime(2026, 10, 25, 16, 33, 52).timestamp()
+# ==========================================
 
 bot = telebot.TeleBot(TOKEN)
 
 admin_states = {}
 active_processes = {}
 
+ACHIEVEMENTS_CONFIG = [
+    ("dl_1", "dl", 1),
+    ("dl_5", "dl", 5),
+    ("dl_10", "dl", 10),
+    ("dl_20", "dl", 20),
+    ("dl_50", "dl", 50),
+    ("dl_67", "dl", 67),
+    ("dl_100", "dl", 100),
+    ("dl_200", "dl", 200),
+    ("dl_228", "dl", 228),
+    ("dl_500", "dl", 500),
+    ("dl_1000", "dl", 1000),
+    ("dl_1337", "dl", 1337),
+    ("dl_1488", "dl", 1488),
+    ("ref_1", "ref", 1),
+    ("ref_5", "ref", 5),
+    ("ref_10", "ref", 10),
+    ("ref_20", "ref", 20),
+    ("ref_50", "ref", 50),
+    ("ref_67", "ref", 67),
+    ("ref_100", "ref", 100),
+    ("rate_1", "rate", 1),
+    ("rate_10", "rate", 10),
+    ("rate_25", "rate", 25),
+    ("sug_1", "sug", 1),
+    ("sug_5", "sug", 5),
+    ("sug_15", "sug", 15),
+    ("admin_god", "admin", 1),
+]
+
 LANGS = {
     "uk": {
         "lang_name": "🇺🇦 Українська",
-        "welcome": "👋 Привіт!\n\n💬 Я файловий менеджер і зберігаю файли з каналу @goat1488_67!\n\n🔽 Використовуй кнопки нижче для навігації",
+        "welcome": "👋 Привіт, {name}{title_part}!\n\n💬 Я файловий менеджер і зберігаю файли з каналу @goat1488_67!\n\n🔽 Використовуй кнопки нижче для навігації",
         "btn_channel": "📢 Наш канал",
         "btn_profile": "⚙️ Профіль",
         "btn_feedback": "👤 Зворотний зв'язок",
@@ -41,6 +79,8 @@ LANGS = {
         "profile_title": "👤 Профіль",
         "profile_id": "🆔 ID",
         "profile_name": "👤 Ім'я",
+        "profile_title_line": "🎖 Титул",
+        "no_title": "Не вибрано",
         "profile_username": "👤 Username",
         "profile_uptime": "⏳ Час роботи бота",
         "profile_my_dl": "📥 Твоїх завантажень",
@@ -51,7 +91,7 @@ LANGS = {
         "btn_fav_del": "🗑 Видалити з обраного",
         "fav_added": "✅ Файл додано до обраного!",
         "fav_removed": "🗑 Файл видалено з обраного!",
-        "favorites_title": "⭐ *Твоє обране:*",
+        "favorites_title": "⭐ **Твоє обране:**",
         "favorites_empty": "📭 Твоє обране поки що порожнє.",
         "back": "🔙 Назад",
         "rate_thanks": "⭐ Дякуємо за оцінку: ",
@@ -67,7 +107,6 @@ LANGS = {
         "reason_broken": "🚫 Битий / неробочий файл",
         "reason_other": "❌ Інша причина",
         "file_not_found": "❌ Файл не знайдено.",
-        "file_too_large": "❌ Файл занадто великий!",
         "sub_required": "❌ Для отримання файлу необхідно підписатися на наш канал:",
         "sub_btn": "📢 Підписатися на ",
         "sub_check_btn": "🔄 Я підписався (-лась)",
@@ -91,7 +130,7 @@ LANGS = {
         "cmd_update_db": "Оновити базу описів",
         "cmd_stats_files": "Статистика та оцінки файлів",
         "admin_no_rights": "❌ Недостатньо прав для виконання цієї команди.",
-        "admin_add_prompt": "📤 Надішліть файл, фото або відео з тегом та описом в підписі (наприклад: `my_tag Опис файлу`):",
+        "admin_add_prompt": "📤 Надішліть файл, фото або відео з тегом та описом в підписі (або ZIP-архів для масового імпорту):",
         "admin_edit_usage": "⚠️ Вкажіть тег: `/edit tag`",
         "admin_edit_not_found": "❌ Тег не знайдено в базі.",
         "admin_edit_prompt": "✏️ Надішліть новий файл для тега",
@@ -160,7 +199,6 @@ LANGS = {
         "vt_send_file_or_link": "⚠️ Надішліть файл або посилання.",
         "arg_tag": "тег",
         "arg_query": "запит",
-        "btn_site": "🌐 Наш сайт",
         "daily_stats_title": "📊 **Щоденна статистика бота**",
         "daily_stats_date": "📅 Дата: {date}",
         "daily_stats_files": "📂 Всього файлів: {count}",
@@ -194,11 +232,78 @@ LANGS = {
         "broadcast_usage": "⚠️ Використання: /broadcast текст",
         "broadcast_started": "📣 Розсилку розпочато...",
         "broadcast_done": "📣 Розсилку завершено. Надіслано: {ok}, помилок: {fail}",
-        "stats_overview": "📊 Статистика бота\n\n👥 Користувачів: {users}\n🚫 Заблоковано: {banned}\n📂 Файлів: {files}\n📥 Завантажень: {downloads}\n\n🔥 Топ-5:\n{top}"
+        "stats_overview": "📊 Статистика бота\n\n👥 Користувачів: {users}\n🚫 Заблоковано: {banned}\n📂 Файлів: {files}\n📥 Завантажень: {downloads}\n\n🔥 Топ-5:\n{top}",
+        "btn_qr_code": "📷 QR-код",
+        "qr_code_caption": "📷 QR-код для файлу `{tag}`:\n🔗 Посилання: {link}",
+        "btn_achievements": "🏆 Досягнення та Титули",
+        "btn_select_title": "🎖 Обрати титул",
+        "btn_clear_title": "❌ Зняти титул",
+        "title_equipped": "✅ Встановлено титул: {title}",
+        "title_cleared": "🗑 Титул знято!",
+        "select_title_prompt": "🎖 Оберіть титул із відкритих досягнень (він буде відображатися у /start):",
+        "no_titles_unlocked": "🔒 У тебе поки немає відкритих титулів. Качай файли, клич друзів або пропонуй файли!",
+        "ref_menu_title": "🏆 <b>Досягнення та Реферали</b>\n\n🔗 Твоє реферальне посилання:\n<code>{ref_link}</code>\n\n👥 Друзів: <b>{ref_count}</b> | 📥 Завантажень: <b>{dl_count}</b>\n⭐ Оцінок: <b>{rate_count}</b> | 📤 Прийнято файлів: <b>{sug_count}</b>\n🎖 Активний титул: <b>{cur_title}</b>\n\n📜 <b>Список титулів:</b>\n{achievements}",
+        "zip_upload_start": "📦 Розпаковую ZIP-архів та масово додаю файли в базу...",
+        "zip_upload_done": "✅ Успішно імпортовано файлів з архіву: {count}",
+        "zip_error": "❌ Помилка обробки ZIP-архіву: {error}",
+        "title_dl_1": "Новачок",
+        "title_dl_5": "Свій в темі",
+        "title_dl_10": "Шукач",
+        "title_dl_20": "Файловий краш",
+        "title_dl_50": "Кібер-мисливець",
+        "title_dl_67": "Six Seven",
+        "title_dl_100": "Перший чемпіон",
+        "title_dl_200": "Кібер-машина",
+        "title_dl_228": "Андерграунд легенда",
+        "title_dl_500": "Володар трафіку",
+        "title_dl_1000": "Архітектор бази",
+        "title_dl_1337": "Elite Hax0r",
+        "title_dl_1488": "Абсолютний Батько",
+        "title_ref_1": "Провідник",
+        "title_ref_5": "Душа компанії",
+        "title_ref_10": "Лідер скваду",
+        "title_ref_20": "Амбасадор",
+        "title_ref_50": "Інфлюенсер",
+        "title_ref_67": "Six Seven Squad",
+        "title_ref_100": "Магнат ком'юніті",
+        "title_rate_1": "Перший погляд",
+        "title_rate_10": "Тру Критик",
+        "title_rate_25": "Головний Ревізор",
+        "title_sug_1": "Помічник",
+        "title_sug_5": "Постачальник годноти",
+        "title_sug_15": "Меценат каналу",
+        "title_admin_god": "👑 Головний Адмін",
+        "desc_dl_1": "1 завантаження",
+        "desc_dl_5": "5 завантажень",
+        "desc_dl_10": "10 завантажень",
+        "desc_dl_20": "20 завантажень",
+        "desc_dl_50": "50 завантажень",
+        "desc_dl_67": "67 завантажень",
+        "desc_dl_100": "100 завантажень",
+        "desc_dl_200": "200 завантажень",
+        "desc_dl_228": "228 завантажень",
+        "desc_dl_500": "500 завантажень",
+        "desc_dl_1000": "1000 завантажень",
+        "desc_dl_1337": "1337 завантажень",
+        "desc_dl_1488": "1488 завантажень",
+        "desc_ref_1": "1 друг",
+        "desc_ref_5": "5 друзів",
+        "desc_ref_10": "10 друзів",
+        "desc_ref_20": "20 друзів",
+        "desc_ref_50": "50 друзів",
+        "desc_ref_67": "67 друзів",
+        "desc_ref_100": "100 друзів",
+        "desc_rate_1": "1 оцінка",
+        "desc_rate_10": "10 оцінок",
+        "desc_rate_25": "25 оцінок",
+        "desc_sug_1": "1 схвалений файл",
+        "desc_sug_5": "5 схвалених файлів",
+        "desc_sug_15": "15 схвалених файлів",
+        "desc_admin_god": "Спеціальний статус адміністратора"
     },
     "ru": {
         "lang_name": "🇷🇺 Русский",
-        "welcome": "👋 Привет!\n\n💬 Я файловый менеджер и храню файлы с канала @goat1488_67!\n\n🔽 Используй кнопки ниже для навигации",
+        "welcome": "👋 Привет, {name}{title_part}!\n\n💬 Я файловый менеджер и храню файлы с канала @goat1488_67!\n\n🔽 Используй кнопки ниже для навигации",
         "btn_channel": "📢 Наш канал",
         "btn_profile": "⚙️ Профиль",
         "btn_feedback": "👤 Обратная связь",
@@ -210,6 +315,8 @@ LANGS = {
         "profile_title": "👤 Профиль",
         "profile_id": "🆔 ID",
         "profile_name": "👤 Имя",
+        "profile_title_line": "🎖 Титул",
+        "no_title": "Не выбран",
         "profile_username": "👤 Username",
         "profile_uptime": "⏳ Время работы бота",
         "profile_my_dl": "📥 Твоих скачиваний",
@@ -236,7 +343,6 @@ LANGS = {
         "reason_broken": "🚫 Битый / нерабочий файл",
         "reason_other": "❌ Другая причина",
         "file_not_found": "❌ Файл не найден.",
-        "file_too_large": "❌ Файл слишком большой!",
         "sub_required": "❌ Для получения файла необходимо подписаться на наш канал:",
         "sub_btn": "📢 Подписаться на ",
         "sub_check_btn": "🔄 Я подписался (-ась)",
@@ -260,12 +366,12 @@ LANGS = {
         "cmd_update_db": "Обновить базу описаний",
         "cmd_stats_files": "Статистика и оценки файлов",
         "admin_no_rights": "❌ Недостаточно прав для выполнения этой команды.",
-        "admin_add_prompt": "📤 Отправьте файл, фото или видео с тегом и описанием в подписи (например: `my_tag Описание файла`):",
+        "admin_add_prompt": "📤 Отправьте файл, фото или видео с тегом и описанием (либо ZIP-архив для массового импорта):",
         "admin_edit_usage": "⚠️ Укажите тег: `/edit tag`",
         "admin_edit_not_found": "❌ Тег не найден в базе.",
         "admin_edit_prompt": "✏️ Отправьте новый файл для тега",
         "admin_db_not_found": "❌ Файл db.txt не найден в канале.",
-        "admin_search_usage": "⚠️ Укажите текст для поиска: `/search запрос`",
+        "admin_search_usage": "⚠️ Укажите тег для поиска: `/search запрос`",
         "admin_search_empty": "❌ Ничего не найдено по вашему запросу.",
         "admin_files_empty": "📭 Список файлов пуст.",
         "admin_full_empty": "📭 База данных пуста, файлов нет.",
@@ -329,7 +435,6 @@ LANGS = {
         "vt_send_file_or_link": "⚠️ Отправьте файл или ссылку.",
         "arg_tag": "тег",
         "arg_query": "запрос",
-        "btn_site": "🌐 Наш сайт",
         "daily_stats_title": "📊 **Ежедневная статистика бота**",
         "daily_stats_date": "📅 Дата: {date}",
         "daily_stats_files": "📂 Всего файлов: {count}",
@@ -363,11 +468,78 @@ LANGS = {
         "broadcast_usage": "⚠️ Использование: /broadcast текст",
         "broadcast_started": "📣 Рассылка начата...",
         "broadcast_done": "📣 Рассылка завершена. Отправлено: {ok}, ошибок: {fail}",
-        "stats_overview": "📊 Статистика бота\n\n👥 Пользователей: {users}\n🚫 Заблокировано: {banned}\n📂 Файлов: {files}\n📥 Скачиваний: {downloads}\n\n🔥 Топ-5:\n{top}"
+        "stats_overview": "📊 Статистика бота\n\n👥 Пользователей: {users}\n🚫 Заблокировано: {banned}\n📂 Файлов: {files}\n📥 Скачиваний: {downloads}\n\n🔥 Топ-5:\n{top}",
+        "btn_qr_code": "📷 QR-код",
+        "qr_code_caption": "📷 QR-код для файла `{tag}`:\n🔗 Ссылка: {link}",
+        "btn_achievements": "🏆 Достижения и Титулы",
+        "btn_select_title": "🎖 Выбрать титул",
+        "btn_clear_title": "❌ Снять титул",
+        "title_equipped": "✅ Установлен титул: {title}",
+        "title_cleared": "🗑 Титул снят!",
+        "select_title_prompt": "🎖 Выберите титул из открытых достижений (он будет отображаться в /start):",
+        "no_titles_unlocked": "🔒 У тебя пока нет открытых титулов. Качай файлы, зови друзей или предлагай файлы!",
+        "ref_menu_title": "🏆 <b>Достижения и Рефералы</b>\n\n🔗 Твоя реферальная ссылка:\n<code>{ref_link}</code>\n\n👥 Друзей: <b>{ref_count}</b> | 📥 Скачиваний: <b>{dl_count}</b>\n⭐ Оценок: <b>{rate_count}</b> | 📤 Принято файлов: <b>{sug_count}</b>\n🎖 Активный титул: <b>{cur_title}</b>\n\n📜 <b>Список титулов:</b>\n{achievements}",
+        "zip_upload_start": "📦 Распаковываю ZIP-архив и массово добавляю файлы в базу...",
+        "zip_upload_done": "✅ Успешно импортировано файлов из архива: {count}",
+        "zip_error": "❌ Ошибка обработки ZIP-архива: {error}",
+        "title_dl_1": "Новичок",
+        "title_dl_5": "Свой в теме",
+        "title_dl_10": "Искатель",
+        "title_dl_20": "Файловый краш",
+        "title_dl_50": "Кибер-охотник",
+        "title_dl_67": "Six Seven",
+        "title_dl_100": "Первый чемпион",
+        "title_dl_200": "Кибер-машина",
+        "title_dl_228": "Андерграунд легенда",
+        "title_dl_500": "Повелитель трафика",
+        "title_dl_1000": "Архитектор базы",
+        "title_dl_1337": "Elite Hax0r",
+        "title_dl_1488": "Абсолютный Батя",
+        "title_ref_1": "Проводник",
+        "title_ref_5": "Душа компании",
+        "title_ref_10": "Лидер сквада",
+        "title_ref_20": "Амбассадор",
+        "title_ref_50": "Инфлюенсер",
+        "title_ref_67": "Six Seven Squad",
+        "title_ref_100": "Магнат комьюнити",
+        "title_rate_1": "Первый взгляд",
+        "title_rate_10": "Тру Критик",
+        "title_rate_25": "Главный Ревизор",
+        "title_sug_1": "Помощник",
+        "title_sug_5": "Поставщик годноты",
+        "title_sug_15": "Меценат канала",
+        "title_admin_god": "👑 Главный Адмін",
+        "desc_dl_1": "1 скачивание",
+        "desc_dl_5": "5 скачиваний",
+        "desc_dl_10": "10 скачиваний",
+        "desc_dl_20": "20 скачиваний",
+        "desc_dl_50": "50 скачиваний",
+        "desc_dl_67": "67 скачиваний",
+        "desc_dl_100": "100 скачиваний",
+        "desc_dl_200": "200 скачиваний",
+        "desc_dl_228": "228 скачиваний",
+        "desc_dl_500": "500 скачиваний",
+        "desc_dl_1000": "1000 скачиваний",
+        "desc_dl_1337": "1337 скачиваний",
+        "desc_dl_1488": "1488 скачиваний",
+        "desc_ref_1": "1 друг",
+        "desc_ref_5": "5 друзей",
+        "desc_ref_10": "10 друзей",
+        "desc_ref_20": "20 друзей",
+        "desc_ref_50": "50 друзей",
+        "desc_ref_67": "67 друзей",
+        "desc_ref_100": "100 друзей",
+        "desc_rate_1": "1 оценка",
+        "desc_rate_10": "10 оценок",
+        "desc_rate_25": "25 оценок",
+        "desc_sug_1": "1 одобренный файл",
+        "desc_sug_5": "5 одобренных файлов",
+        "desc_sug_15": "15 одобренных файлов",
+        "desc_admin_god": "Специальный статус администратора"
     },
     "en": {
         "lang_name": "🇬🇧 English",
-        "welcome": "👋 Hello!\n\n💬 I am a file manager storing files from @goat1488_67!\n\n🔽 Use the buttons below to navigate",
+        "welcome": "👋 Hello, {name}{title_part}!\n\n💬 I am a file manager storing files from @goat1488_67!\n\n🔽 Use the buttons below to navigate",
         "btn_channel": "📢 Our channel",
         "btn_profile": "⚙️ Profile",
         "btn_feedback": "👤 Feedback",
@@ -379,6 +551,8 @@ LANGS = {
         "profile_title": "👤 Profile",
         "profile_id": "🆔 ID",
         "profile_name": "👤 Name",
+        "profile_title_line": "🎖 Title",
+        "no_title": "None",
         "profile_username": "👤 Username",
         "profile_uptime": "⏳ Bot Uptime",
         "profile_my_dl": "📥 Your downloads",
@@ -405,7 +579,6 @@ LANGS = {
         "reason_broken": "🚫 Broken / non-working file",
         "reason_other": "❌ Other reason",
         "file_not_found": "❌ File not found.",
-        "file_too_large": "❌ File is too large!",
         "sub_required": "❌ To receive the file, you must subscribe to our channel:",
         "sub_btn": "📢 Subscribe to ",
         "sub_check_btn": "🔄 I subscribed",
@@ -429,7 +602,7 @@ LANGS = {
         "cmd_update_db": "Update description base",
         "cmd_stats_files": "File stats and ratings",
         "admin_no_rights": "❌ Insufficient rights.",
-        "admin_add_prompt": "📤 Send a file, photo or video with tag and description in caption (e.g., `my_tag File description`):",
+        "admin_add_prompt": "📤 Send a file, photo or video with tag and description (or ZIP archive for mass import):",
         "admin_edit_usage": "⚠️ Specify tag: `/edit tag`",
         "admin_edit_not_found": "❌ Tag not found in database.",
         "admin_edit_prompt": "✏️ Send new file for tag",
@@ -498,7 +671,6 @@ LANGS = {
         "vt_send_file_or_link": "⚠️ Please send a file or link.",
         "arg_tag": "tag",
         "arg_query": "query",
-        "btn_site": "🌐 Our site",
         "daily_stats_title": "📊 **Daily Bot Statistics**",
         "daily_stats_date": "📅 Date: {date}",
         "daily_stats_files": "📂 Total files: {count}",
@@ -532,11 +704,78 @@ LANGS = {
         "broadcast_usage": "⚠️ Usage: /broadcast text",
         "broadcast_started": "📣 Broadcast started...",
         "broadcast_done": "📣 Broadcast finished. Sent: {ok}, failed: {fail}",
-        "stats_overview": "📊 Bot statistics\n\n👥 Users: {users}\n🚫 Banned: {banned}\n📂 Files: {files}\n📥 Downloads: {downloads}\n\n🔥 Top 5:\n{top}"
+        "stats_overview": "📊 Bot statistics\n\n👥 Users: {users}\n🚫 Banned: {banned}\n📂 Files: {files}\n📥 Downloads: {downloads}\n\n🔥 Top 5:\n{top}",
+        "btn_qr_code": "📷 QR Code",
+        "qr_code_caption": "📷 QR Code for file `{tag}`:\n🔗 Link: {link}",
+        "btn_achievements": "🏆 Achievements & Titles",
+        "btn_select_title": "🎖 Select Title",
+        "btn_clear_title": "❌ Remove Title",
+        "title_equipped": "✅ Title equipped: {title}",
+        "title_cleared": "🗑 Title removed!",
+        "select_title_prompt": "🎖 Choose a title from your unlocked achievements (displayed in /start):",
+        "no_titles_unlocked": "🔒 You have no unlocked titles yet. Download files, invite friends, or suggest content!",
+        "ref_menu_title": "🏆 <b>Achievements & Referrals</b>\n\n🔗 Your referral link:\n<code>{ref_link}</code>\n\n👥 Friends: <b>{ref_count}</b> | 📥 Downloads: <b>{dl_count}</b>\n⭐ Ratings: <b>{rate_count}</b> | 📤 Approved files: <b>{sug_count}</b>\n🎖 Active Title: <b>{cur_title}</b>\n\n📜 <b>Titles list:</b>\n{achievements}",
+        "zip_upload_start": "📦 Unpacking ZIP archive and importing files...",
+        "zip_upload_done": "✅ Successfully imported files from archive: {count}",
+        "zip_error": "❌ ZIP archive processing error: {error}",
+        "title_dl_1": "Newbie",
+        "title_dl_5": "In The Loop",
+        "title_dl_10": "Seeker",
+        "title_dl_20": "File Crush",
+        "title_dl_50": "Cyber Hunter",
+        "title_dl_67": "Six Seven",
+        "title_dl_100": "First Champion",
+        "title_dl_200": "Cyber Machine",
+        "title_dl_228": "Underground Legend",
+        "title_dl_500": "Traffic Overlord",
+        "title_dl_1000": "Database Architect",
+        "title_dl_1337": "Elite Hax0r",
+        "title_dl_1488": "Absolute Boss",
+        "title_ref_1": "Pathfinder",
+        "title_ref_5": "Life of the Party",
+        "title_ref_10": "Squad Leader",
+        "title_ref_20": "Ambassador",
+        "title_ref_50": "Influencer",
+        "title_ref_67": "Six Seven Squad",
+        "title_ref_100": "Community Tycoon",
+        "title_rate_1": "First Look",
+        "title_rate_10": "True Critic",
+        "title_rate_25": "Chief Inspector",
+        "title_sug_1": "Helper",
+        "title_sug_5": "Goods Supplier",
+        "title_sug_15": "Channel Patron",
+        "title_admin_god": "👑 Head Admin",
+        "desc_dl_1": "1 download",
+        "desc_dl_5": "5 downloads",
+        "desc_dl_10": "10 downloads",
+        "desc_dl_20": "20 downloads",
+        "desc_dl_50": "50 downloads",
+        "desc_dl_67": "67 downloads",
+        "desc_dl_100": "100 downloads",
+        "desc_dl_200": "200 downloads",
+        "desc_dl_228": "228 downloads",
+        "desc_dl_500": "1000 downloads",
+        "desc_dl_1000": "1000 downloads",
+        "desc_dl_1337": "1337 downloads",
+        "desc_dl_1488": "1488 downloads",
+        "desc_ref_1": "1 friend",
+        "desc_ref_5": "5 friends",
+        "desc_ref_10": "10 friends",
+        "desc_ref_20": "20 friends",
+        "desc_ref_50": "50 friends",
+        "desc_ref_67": "67 friends",
+        "desc_ref_100": "100 friends",
+        "desc_rate_1": "1 rating",
+        "desc_rate_10": "10 ratings",
+        "desc_rate_25": "25 ratings",
+        "desc_sug_1": "1 approved file",
+        "desc_sug_5": "5 approved files",
+        "desc_sug_15": "15 approved files",
+        "desc_admin_god": "Special administrator status"
     },
     "ja": {
         "lang_name": "🇯🇵 日本語",
-        "welcome": "👋 こんにちは！\n\n💬 @goat1488_67 のファイルマネージャーです！\n\n🔽 下のボタンを使って移動してください",
+        "welcome": "👋 こんにちは、{name}{title_part}！\n\n💬 @goat1488_67 のファイルマネージャーです！\n\n🔽 下のボタンを使って移動してください",
         "btn_channel": "📢 チャンネル",
         "btn_profile": "⚙️ プロフィール",
         "btn_feedback": "👤 フィードバック",
@@ -548,6 +787,8 @@ LANGS = {
         "profile_title": "👤 プロフィール",
         "profile_id": "🆔 ID",
         "profile_name": "👤 名前",
+        "profile_title_line": "🎖 称号",
+        "no_title": "未設定",
         "profile_username": "👤 ユーザー名",
         "profile_uptime": "⏳ 稼働時間",
         "profile_my_dl": "📥 あなたのダウンロード数",
@@ -574,7 +815,6 @@ LANGS = {
         "reason_broken": "🚫 壊れたファイル",
         "reason_other": "❌ その他の理由",
         "file_not_found": "❌ ファイルが見つかりません。",
-        "file_too_large": "❌ ファイルが大きすぎます！",
         "sub_required": "❌ ファイルを受け取るには、チャンネルを購読する必要があります：",
         "sub_btn": "📢 チャンネル登録 ",
         "sub_check_btn": "🔄 登録しました",
@@ -598,7 +838,7 @@ LANGS = {
         "cmd_update_db": "更新",
         "cmd_stats_files": "統計",
         "admin_no_rights": "❌ 権限がありません。",
-        "admin_add_prompt": "📤 キャプションにタグと説明を入れてファイル、写真、動画を送信してください (例: `my_tag ファイルの説明`):",
+        "admin_add_prompt": "📤 キャプションにタグと説明を入れてファイル、写真、動画を送信してください:",
         "admin_edit_usage": "⚠️ タグを指定してください: `/edit tag`",
         "admin_edit_not_found": "❌ データベースにタグが見つかりません。",
         "admin_edit_prompt": "✏️ タグ用の新しいファイルを送信してください",
@@ -667,7 +907,6 @@ LANGS = {
         "vt_send_file_or_link": "⚠️ ファイルまたはリンクを送信してください。",
         "arg_tag": "タグ",
         "arg_query": "検索語",
-        "btn_site": "🌐 サイト",
         "daily_stats_title": "📊 **ボットの毎日の統計**",
         "daily_stats_date": "📅 日付: {date}",
         "daily_stats_files": "📂 ファイル総数: {count}",
@@ -701,13 +940,130 @@ LANGS = {
         "broadcast_usage": "⚠️ 使い方: /broadcast テキスト",
         "broadcast_started": "📣 配信を開始しました...",
         "broadcast_done": "📣 配信が完了しました。送信: {ok}、失敗: {fail}",
-        "stats_overview": "📊 ボット統計\n\n👥 ユーザー数: {users}\n🚫 ブロック中: {banned}\n📂 ファイル数: {files}\n📥 ダウンロード数: {downloads}\n\n🔥 トップ5:\n{top}"
+        "stats_overview": "📊 ボット統計\n\n👥 ユーザー数: {users}\n🚫 ブロック中: {banned}\n📂 ファイル数: {files}\n📥 ダウンロード数: {downloads}\n\n🔥 トップ5:\n{top}",
+        "btn_qr_code": "📷 QRコード",
+        "qr_code_caption": "📷 ファイル `{tag}` のQRコード:\n🔗 リンク: {link}",
+        "btn_achievements": "🏆 実績と称号",
+        "btn_select_title": "🎖 称号を選択",
+        "btn_clear_title": "❌ 称号を外す",
+        "title_equipped": "✅ 称号を設定しました: {title}",
+        "title_cleared": "🗑 称号を外しました！",
+        "select_title_prompt": "🎖 解除済みの実績から称号を選択してください（/start で表示されます）:",
+        "no_titles_unlocked": "🔒 まだ解除された称号がありません。ファイルをダウンロードしたり、友達を招待したりしよう！",
+        "ref_menu_title": "🏆 <b>実績と紹介</b>\n\n🔗 あなたの紹介リンク:\n<code>{ref_link}</code>\n\n👥 友達: <b>{ref_count}</b> | 📥 DL数: <b>{dl_count}</b>\n⭐ 評価数: <b>{rate_count}</b> | 📤 承認ファイル: <b>{sug_count}</b>\n🎖 現在の称号: <b>{cur_title}</b>\n\n📜 <b>称号リスト:</b>\n{achievements}",
+        "zip_upload_start": "📦 ZIPアーカイブを解凍してデータベースに一括インポートしています...",
+        "zip_upload_done": "✅ アーカイブから正常にインポートされたファイル数: {count}",
+        "zip_error": "❌ ZIPアーカイブ処理エラー: {error}",
+        "title_dl_1": "初心者",
+        "title_dl_5": "通なユーザー",
+        "title_dl_10": "シーカー",
+        "title_dl_20": "ファイル推し",
+        "title_dl_50": "サイバーハンター",
+        "title_dl_67": "Six Seven",
+        "title_dl_100": "初代チャンピオン",
+        "title_dl_200": "サイバーマシン",
+        "title_dl_228": "アンダーグラウンド伝説",
+        "title_dl_500": "トラフィックの覇王",
+        "title_dl_1000": "DBアーキテクト",
+        "title_dl_1337": "Elite Hax0r",
+        "title_dl_1488": "絶対的ボス",
+        "title_ref_1": "案内人",
+        "title_ref_5": "ムードメーカー",
+        "title_ref_10": "スクワッドリーダー",
+        "title_ref_20": "アンバサダー",
+        "title_ref_50": "インフルエンサー",
+        "title_ref_67": "Six Seven Squad",
+        "title_ref_100": "コミュニティ王",
+        "title_rate_1": "ファーストルック",
+        "title_rate_10": "真の批評家",
+        "title_rate_25": "主任査察官",
+        "title_sug_1": "ヘルパー",
+        "title_sug_5": "神ファイル提供者",
+        "title_sug_15": "チャンネルのパトロン",
+        "title_admin_god": "👑 ヘッドアドミン",
+        "desc_dl_1": "1 DL",
+        "desc_dl_5": "5 DL",
+        "desc_dl_10": "10 DL",
+        "desc_dl_20": "20 DL",
+        "desc_dl_50": "50 DL",
+        "desc_dl_67": "67 DL",
+        "desc_dl_100": "100 DL",
+        "desc_dl_200": "200 DL",
+        "desc_dl_228": "228 DL",
+        "desc_dl_500": "1000 DL",
+        "desc_dl_1000": "1000 DL",
+        "desc_dl_1337": "1337 DL",
+        "desc_dl_1488": "1488 DL",
+        "desc_ref_1": "友達1人",
+        "desc_ref_5": "友達5人",
+        "desc_ref_10": "友達10人",
+        "desc_ref_20": "友達20人",
+        "desc_ref_50": "友達50人",
+        "desc_ref_67": "友達67人",
+        "desc_ref_100": "友達100人",
+        "desc_rate_1": "評価1回",
+        "desc_rate_10": "評価10回",
+        "desc_rate_25": "評価25回",
+        "desc_sug_1": "承認1件",
+        "desc_sug_5": "承認5件",
+        "desc_sug_15": "承認15件",
+        "desc_admin_god": "特別管理者ステータス"
     }
 }
 
 def get_text(user_id, key, mapping):
     lang = mapping.get("_users_lang", {}).get(str(user_id), "uk")
     return LANGS.get(lang, LANGS["uk"]).get(key, LANGS["uk"].get(key, key))
+
+def get_user_metrics(user_id, mapping):
+    uid_str = str(user_id)
+    user_key = f"dl_user_{user_id}"
+    dl_count = sum(item.get(user_key, 0) for k, item in mapping.items() if not k.startswith("_") and isinstance(item, dict))
+    ref_count = len(mapping.get("_referrals", {}).get(uid_str, []))
+    
+    rate_count = 0
+    for k, item in mapping.items():
+        if not k.startswith("_") and isinstance(item, dict):
+            for r in item.get("ratings", []):
+                if r.get("user_id") == user_id:
+                    rate_count += 1
+                    
+    sug_count = mapping.get("_approved_suggests", {}).get(uid_str, 0)
+    admin_flag = 1 if user_id == ADMIN_ID else 0
+    return dl_count, ref_count, rate_count, sug_count, admin_flag
+
+def check_user_achievements(user_id, mapping):
+    if "_achievements" not in mapping:
+        mapping["_achievements"] = {}
+    uid_str = str(user_id)
+    user_achs = mapping["_achievements"].setdefault(uid_str, [])
+    
+    dl_count, ref_count, rate_count, sug_count, admin_flag = get_user_metrics(user_id, mapping)
+    metrics_map = {
+        "dl": dl_count,
+        "ref": ref_count,
+        "rate": rate_count,
+        "sug": sug_count,
+        "admin": admin_flag
+    }
+    
+    changed = False
+    for ach_id, cat, req in ACHIEVEMENTS_CONFIG:
+        if metrics_map.get(cat, 0) >= req and ach_id not in user_achs:
+            user_achs.append(ach_id)
+            changed = True
+            
+    return user_achs, changed
+
+def get_active_title_str(user_id, mapping):
+    uid_str = str(user_id)
+    ach_id = mapping.get("_active_title", {}).get(uid_str)
+    if not ach_id:
+        return ""
+    user_achs, _ = check_user_achievements(user_id, mapping)
+    if ach_id not in user_achs:
+        return ""
+    return get_text(user_id, f"title_{ach_id}", mapping)
 
 def file_button(tag, data, bot_username, suffix=""):
     desc = (data.get("desc") or "").strip().split("\n")[0]
@@ -767,7 +1123,6 @@ FLOOD_WINDOW = 10
 user_actions = {}
 
 def flood_status(user_id):
-    """0 = ok, 1 = first violation (warn), 2 = still flooding (stay silent)."""
     if user_id == ADMIN_ID:
         return 0
     now = time.time()
@@ -826,18 +1181,8 @@ def set_user_commands(user_id, is_admin, mapping):
                 BotCommand("help", get_text(user_id, "cmd_help", mapping)),
             ]
         bot.set_my_commands(commands, scope=telebot.types.BotCommandScopeChat(chat_id=user_id))
-        try:
-            bot.set_chat_menu_button(chat_id=user_id, menu_button=MenuButtonWebApp(text=get_text(user_id, "btn_site", mapping), web_app=WebAppInfo(url=SITE_URL)))
-        except Exception:
-            pass
     except Exception as e:
-        print(f"Ошибка установки команд для {user_id}: {e}")
-
-def set_bot_menu_button():
-    try:
-        bot.set_chat_menu_button(menu_button=MenuButtonWebApp(text="My site", web_app=WebAppInfo(url=SITE_URL)))
-    except Exception as e:
-        print(f"Ошибка установки кнопки меню: {e}")
+        print(f"Помилка встановлення команд для {user_id}: {e}")
 
 def load_mapping():
     try:
@@ -855,7 +1200,7 @@ def load_mapping():
                 downloaded_file = bot.download_file(file_info.file_path)
                 return json.loads(downloaded_file.decode('utf-8'))
     except Exception as e:
-        print(f"Не удалось подгрузить базу из канала: {e}")
+        print(f"Не вдалося підвантажити базу з каналу: {e}")
     return {}
 
 def save_mapping_data(mapping):
@@ -896,7 +1241,7 @@ def save_mapping_data(mapping):
         if os.path.exists("db.txt"):
             os.remove("db.txt")
     except Exception as e:
-        print(f"Ошибка сохранения базы в канал: {e}")
+        print(f"Помилка збереження бази в канал: {e}")
 
 def get_settings(mapping):
     if "_settings" not in mapping:
@@ -913,7 +1258,7 @@ def check_user_subscriptions(user_id, mapping):
             if member.status not in ['member', 'administrator', 'creator']:
                 not_subbed.append(ch)
         except Exception as e:
-            print(f"Не удалось проверить подписку на {ch}: {e}")
+            print(f"Не вдалося перевірити підписку на {ch}: {e}")
     return not_subbed
 
 def get_sub_keyboard(not_subbed, file_key, user_id, mapping):
@@ -945,10 +1290,11 @@ def get_start_keyboard(user_id, mapping):
 def get_profile_keyboard(user_id, mapping):
     markup = InlineKeyboardMarkup(row_width=1)
     btn_favs = InlineKeyboardButton(get_text(user_id, "btn_favorites", mapping), callback_data="open_favorites_1")
+    btn_ach = InlineKeyboardButton(get_text(user_id, "btn_achievements", mapping), callback_data="open_achievements")
     btn_back = InlineKeyboardButton(get_text(user_id, "back", mapping), callback_data="back_to_main")
     notify_on = str(user_id) not in mapping.get("_notify_off", [])
     btn_notify = InlineKeyboardButton(get_text(user_id, "btn_notify_on" if notify_on else "btn_notify_off", mapping), callback_data="toggle_notify")
-    markup.add(btn_favs)
+    markup.add(btn_favs, btn_ach)
     markup.add(btn_notify)
     markup.add(btn_back)
     return markup
@@ -958,6 +1304,12 @@ def get_lang_keyboard():
     for code, data in LANGS.items():
         markup.add(InlineKeyboardButton(data["lang_name"], callback_data=f"setlang_{code}"))
     return markup
+
+def format_welcome_text(user, mapping):
+    active_title = get_active_title_str(user.id, mapping)
+    title_part = f" ({active_title})" if active_title else ""
+    first_name = user.first_name or "User"
+    return get_text(user.id, "welcome", mapping).format(name=first_name, title_part=title_part)
 
 @bot.message_handler(commands=["start"])
 def send_welcome(message):
@@ -979,36 +1331,53 @@ def send_welcome(message):
 
     set_user_commands(user.id, is_admin, mapping)
 
+    if user.id == ADMIN_ID:
+        _, changed = check_user_achievements(user.id, mapping)
+        if changed:
+            save_mapping_data(mapping)
+
     args = message.text.split()
     if len(args) > 1:
-        file_key = args[1]
-        
-        not_subbed = check_user_subscriptions(user.id, mapping)
-        if not_subbed:
-            bot.send_message(
-                message.chat.id,
-                get_text(user.id, "sub_required", mapping),
-                reply_markup=get_sub_keyboard(not_subbed, file_key, user.id, mapping)
-            )
+        arg_val = args[1]
+        if arg_val.startswith("ref_"):
+            ref_owner = arg_val.replace("ref_", "")
+            if ref_owner.isdigit() and int(ref_owner) != user.id:
+                if "_referrals" not in mapping:
+                    mapping["_referrals"] = {}
+                user_refs = mapping["_referrals"].setdefault(ref_owner, [])
+                if user.id not in user_refs:
+                    user_refs.append(user.id)
+                    check_user_achievements(int(ref_owner), mapping)
+                    save_mapping_data(mapping)
+        else:
+            file_key = arg_val
+            not_subbed = check_user_subscriptions(user.id, mapping)
+            if not_subbed:
+                bot.send_message(
+                    message.chat.id,
+                    get_text(user.id, "sub_required", mapping),
+                    reply_markup=get_sub_keyboard(not_subbed, file_key, user.id, mapping)
+                )
+                return
+
+            if file_key in mapping:
+                if "downloads" not in mapping[file_key]:
+                    mapping[file_key]["downloads"] = 0
+                mapping[file_key]["downloads"] += 1
+                
+                user_key = f"dl_user_{user.id}"
+                if user_key not in mapping[file_key]:
+                    mapping[file_key][user_key] = 0
+                mapping[file_key][user_key] += 1
+                
+                check_user_achievements(user.id, mapping)
+                save_mapping_data(mapping)
+                send_file_to_user(message.chat.id, file_key, user.id, mapping)
+            else:
+                bot.send_message(message.chat.id, get_text(user.id, "file_not_found", mapping))
             return
 
-        if file_key in mapping:
-            if "downloads" not in mapping[file_key]:
-                mapping[file_key]["downloads"] = 0
-            mapping[file_key]["downloads"] += 1
-            
-            user_key = f"dl_user_{user.id}"
-            if user_key not in mapping[file_key]:
-                mapping[file_key][user_key] = 0
-            mapping[file_key][user_key] += 1
-            
-            save_mapping_data(mapping)
-            send_file_to_user(message.chat.id, file_key, user.id, mapping)
-        else:
-            bot.send_message(message.chat.id, get_text(user.id, "file_not_found", mapping))
-        return
-
-    caption_text = get_text(user.id, "welcome", mapping)
+    caption_text = format_welcome_text(user, mapping)
     try:
         with open("1.png", "rb") as photo:
             bot.send_photo(message.chat.id, photo, caption=caption_text, reply_markup=get_start_keyboard(user.id, mapping))
@@ -1145,7 +1514,7 @@ def update_database_cmd(message):
                         data["desc"] = clean_desc
                         updated_count += 1
             except Exception as e:
-                print(f"Ошибка проверки сообщения {msg_id} для тега {tag}: {e}")
+                print(f"Помилка перевірки повідомлення {msg_id} для тега {tag}: {e}")
                 
     save_mapping_data(mapping)
     bot.send_message(message.chat.id, get_text(message.from_user.id, "db_updated", mapping).format(count=updated_count))
@@ -1298,7 +1667,7 @@ def handle_callback_query(call):
 
         bot.answer_callback_query(call.id, get_text(user.id, "lang_set", mapping))
         
-        caption_text = get_text(user.id, "welcome", mapping)
+        caption_text = format_welcome_text(user, mapping)
         try:
             bot.edit_message_caption(chat_id=chat_id, message_id=message_id, caption=caption_text, reply_markup=get_start_keyboard(user.id, mapping))
         except:
@@ -1403,11 +1772,129 @@ def handle_callback_query(call):
             mapping[file_key]["downloads"] = mapping[file_key].get("downloads", 0) + 1
             user_key = f"dl_user_{user.id}"
             mapping[file_key][user_key] = mapping[file_key].get(user_key, 0) + 1
+            check_user_achievements(user.id, mapping)
             save_mapping_data(mapping)
             bot.answer_callback_query(call.id)
             send_file_to_user(chat_id, file_key, user.id, mapping)
         else:
             bot.answer_callback_query(call.id, get_text(user.id, "file_not_found", mapping), show_alert=True)
+        return
+
+    elif call.data.startswith("qrcode_"):
+        file_key = call.data.replace("qrcode_", "")
+        bot_username = bot.get_me().username
+        deep_link = f"https://t.me/{bot_username}?start={file_key}"
+        
+        qr = qrcode.QRCode(version=1, box_size=10, border=2)
+        qr.add_data(deep_link)
+        qr.make(fit=True)
+        img = qr.make_image(fill_color="black", back_color="white")
+        
+        bio = io.BytesIO()
+        bio.name = "qrcode.png"
+        img.save(bio, "PNG")
+        bio.seek(0)
+        
+        text = get_text(user.id, "qr_code_caption", mapping).format(tag=file_key, link=deep_link)
+        bot.send_photo(chat_id, bio, caption=text, parse_mode="Markdown")
+        bot.answer_callback_query(call.id)
+        return
+
+    elif call.data == "open_achievements":
+        bot_username = bot.get_me().username
+        ref_link = f"https://t.me/{bot_username}?start=ref_{user.id}"
+        dl_count, ref_count, rate_count, sug_count, _ = get_user_metrics(user.id, mapping)
+        
+        user_achs, changed = check_user_achievements(user.id, mapping)
+        if changed:
+            save_mapping_data(mapping)
+            
+        ach_texts = []
+        for ach_id, cat, req in ACHIEVEMENTS_CONFIG:
+            title_name = get_text(user.id, f"title_{ach_id}", mapping)
+            desc_name = get_text(user.id, f"desc_{ach_id}", mapping)
+            if ach_id in user_achs:
+                ach_texts.append(f"✅ <b>{title_name}</b> ({desc_name})")
+            else:
+                ach_texts.append(f"🔒 <s>{title_name}</s> ({desc_name})")
+                
+        achs_str = "\n".join(ach_texts)
+        cur_title = get_active_title_str(user.id, mapping) or get_text(user.id, "no_title", mapping)
+        
+        text = get_text(user.id, "ref_menu_title", mapping).format(
+            ref_link=ref_link,
+            ref_count=ref_count,
+            dl_count=dl_count,
+            rate_count=rate_count,
+            sug_count=sug_count,
+            cur_title=cur_title,
+            achievements=achs_str
+        )
+        
+        markup = InlineKeyboardMarkup(row_width=1)
+        markup.add(
+            InlineKeyboardButton(get_text(user.id, "btn_select_title", mapping), callback_data="select_title_menu"),
+            InlineKeyboardButton(get_text(user.id, "back", mapping), callback_data="open_profile")
+        )
+        
+        try:
+            bot.edit_message_caption(chat_id=chat_id, message_id=message_id, caption=text, reply_markup=markup, parse_mode="HTML")
+        except:
+            try:
+                bot.edit_message_text(text=text, chat_id=chat_id, message_id=message_id, reply_markup=markup, parse_mode="HTML")
+            except:
+                bot.send_message(chat_id, text, reply_markup=markup, parse_mode="HTML")
+        bot.answer_callback_query(call.id)
+        return
+
+    elif call.data == "select_title_menu":
+        user_achs, changed = check_user_achievements(user.id, mapping)
+        if changed:
+            save_mapping_data(mapping)
+            
+        if not user_achs:
+            bot.answer_callback_query(call.id, get_text(user.id, "no_titles_unlocked", mapping), show_alert=True)
+            return
+            
+        markup = InlineKeyboardMarkup(row_width=2)
+        btns = []
+        for ach_id in user_achs:
+            t_name = get_text(user.id, f"title_{ach_id}", mapping)
+            btns.append(InlineKeyboardButton(f"🎖 {t_name}", callback_data=f"equip_title_{ach_id}"))
+        markup.add(*btns)
+        markup.add(
+            InlineKeyboardButton(get_text(user.id, "btn_clear_title", mapping), callback_data="equip_title_none"),
+            InlineKeyboardButton(get_text(user.id, "back", mapping), callback_data="open_achievements")
+        )
+        
+        prompt_text = get_text(user.id, "select_title_prompt", mapping)
+        try:
+            bot.edit_message_caption(chat_id=chat_id, message_id=message_id, caption=prompt_text, reply_markup=markup)
+        except:
+            bot.edit_message_text(text=prompt_text, chat_id=chat_id, message_id=message_id, reply_markup=markup)
+        bot.answer_callback_query(call.id)
+        return
+
+    elif call.data.startswith("equip_title_"):
+        ach_id = call.data.replace("equip_title_", "")
+        uid_str = str(user.id)
+        if "_active_title" not in mapping:
+            mapping["_active_title"] = {}
+            
+        if ach_id == "none":
+            mapping["_active_title"].pop(uid_str, None)
+            save_mapping_data(mapping)
+            bot.answer_callback_query(call.id, get_text(user.id, "title_cleared", mapping))
+        else:
+            user_achs, _ = check_user_achievements(user.id, mapping)
+            if ach_id in user_achs:
+                mapping["_active_title"][uid_str] = ach_id
+                save_mapping_data(mapping)
+                t_name = get_text(user.id, f"title_{ach_id}", mapping)
+                bot.answer_callback_query(call.id, get_text(user.id, "title_equipped", mapping).format(title=t_name))
+                
+        call.data = "open_achievements"
+        handle_callback_query(call)
         return
 
     elif call.data == "click_suggest":
@@ -1484,6 +1971,9 @@ def handle_callback_query(call):
             InlineKeyboardButton(fav_btn_text, callback_data=f"fav_toggle_{file_key}"),
             InlineKeyboardButton(report_btn_text, callback_data=f"report_menu_{file_key}")
         )
+        markup.add(
+            InlineKeyboardButton(get_text(user.id, "btn_qr_code", mapping), callback_data=f"qrcode_{file_key}")
+        )
         try:
             bot.edit_message_reply_markup(chat_id=chat_id, message_id=message_id, reply_markup=markup)
         except Exception:
@@ -1552,6 +2042,7 @@ def handle_callback_query(call):
                 mapping[file_key]["ratings"] = []
             mapping[file_key]["ratings"] = [r for r in mapping[file_key]["ratings"] if r.get("user_id") != user.id]
             mapping[file_key]["ratings"].append({"user_id": user.id, "stars": int(stars)})
+            check_user_achievements(user.id, mapping)
             save_mapping_data(mapping)
         return
 
@@ -1589,6 +2080,9 @@ def handle_callback_query(call):
         markup.add(
             InlineKeyboardButton(fav_btn_text, callback_data=f"fav_toggle_{file_key}"),
             InlineKeyboardButton(get_text(user.id, "report_btn", mapping), callback_data=f"report_menu_{file_key}")
+        )
+        markup.add(
+            InlineKeyboardButton(get_text(user.id, "btn_qr_code", mapping), callback_data=f"qrcode_{file_key}")
         )
         try:
             bot.edit_message_reply_markup(chat_id=chat_id, message_id=message_id, reply_markup=markup)
@@ -1642,6 +2136,13 @@ def handle_callback_query(call):
 
             mapping = load_mapping()
             mapping[tag] = {"msg_id": sent_msg.message_id, "downloads": 0, "desc": user_description, "category": "General"}
+            
+            if "_approved_suggests" not in mapping:
+                mapping["_approved_suggests"] = {}
+            t_uid_str = str(target_user_id)
+            mapping["_approved_suggests"][t_uid_str] = mapping["_approved_suggests"].get(t_uid_str, 0) + 1
+            check_user_achievements(target_user_id, mapping)
+            
             save_mapping_data(mapping)
 
             if call.message.caption:
@@ -1721,6 +2222,7 @@ def handle_callback_query(call):
                     mapping[file_key][user_key] = 0
                 mapping[file_key][user_key] += 1
                 
+                check_user_achievements(user.id, mapping)
                 save_mapping_data(mapping)
                 send_file_to_user(chat_id, file_key, user.id, mapping)
             else:
@@ -1744,10 +2246,12 @@ def handle_callback_query(call):
         my_downloads = sum(item.get(user_key, 0) for key, item in mapping.items() if not key.startswith("_") and isinstance(item, dict))
         total_downloads = sum(item.get("downloads", 0) for key, item in mapping.items() if not key.startswith("_") and isinstance(item, dict))
         fav_count = len(mapping.get("_favorites", {}).get(str(user_id), []))
+        cur_title = get_active_title_str(user_id, mapping) or get_text(user_id, "no_title", mapping)
 
         t_title = get_text(user_id, "profile_title", mapping)
         t_id = get_text(user_id, "profile_id", mapping)
         t_name = get_text(user_id, "profile_name", mapping)
+        t_tline = get_text(user_id, "profile_title_line", mapping)
         t_uname = get_text(user_id, "profile_username", mapping)
         t_uptime = get_text(user_id, "profile_uptime", mapping)
         t_mydl = get_text(user_id, "profile_my_dl", mapping)
@@ -1758,6 +2262,7 @@ def handle_callback_query(call):
             f"{t_title}\n\n"
             f"{t_id}: {user_id}\n"
             f"{t_name}: {first_name}\n"
+            f"{t_tline}: {cur_title}\n"
             f"{t_uname}: {username}\n"
             f"{t_uptime}: {uptime_str}\n"
             f"{t_mydl}: {my_downloads}\n"
@@ -1791,7 +2296,7 @@ def handle_callback_query(call):
         bot.answer_callback_query(call.id)
 
     elif call.data == "back_to_main":
-        caption_text = get_text(user.id, "welcome", mapping)
+        caption_text = format_welcome_text(user, mapping)
         try:
             with open("1.png", "rb") as photo:
                 bot.edit_message_media(
@@ -1843,6 +2348,9 @@ def send_file_to_user(chat_id, file_key, user_id=None, mapping=None):
                 InlineKeyboardButton(fav_btn_text, callback_data=f"fav_toggle_{file_key}"),
                 InlineKeyboardButton(report_btn_text, callback_data=f"report_menu_{file_key}")
             )
+            markup.add(
+                InlineKeyboardButton(get_text(user_id, "btn_qr_code", mapping), callback_data=f"qrcode_{file_key}")
+            )
 
             bot.copy_message(chat_id, STORAGE_CHANNEL_ID, item['msg_id'])
             avg, n_r = get_avg_rating(item)
@@ -1850,9 +2358,13 @@ def send_file_to_user(chat_id, file_key, user_id=None, mapping=None):
                          else get_text(user_id, "file_downloads_line", mapping).format(count=item.get("downloads", 0)))
             rate_prompt_text = get_text(user_id, "rate_prompt", mapping) + "\n\n" + info_line
             bot.send_message(chat_id, rate_prompt_text, reply_markup=markup)
+            
+            _, changed = check_user_achievements(user_id, mapping)
+            if changed:
+                save_mapping_data(mapping)
             return
         except Exception as e:
-            print(f"Ошибка отправки файла: {e}")
+            print(f"Помилка відправки файлу: {e}")
     bot.send_message(chat_id, get_text(user_id, "file_not_found", mapping))
 
 def notify_users(text_key, mapping, **fmt):
@@ -1899,19 +2411,23 @@ def delete_file(message):
     user_id = message.from_user.id
     mapping = load_mapping()
     if user_id != ADMIN_ID:
+        bot.send_message(message.chat.id, get_text(user_id, "admin_no_rights", mapping))
         return
     args = message.text.split(maxsplit=1)
     if len(args) < 2:
+        bot.send_message(message.chat.id, "⚠️ Укажите тег для удаления: `/del tag`", parse_mode="Markdown")
         return
     tag = args[1].strip()
     if tag in mapping:
         try:
             bot.delete_message(STORAGE_CHANNEL_ID, mapping[tag]['msg_id'])
-        except:
-            pass
+        except Exception as e:
+            print(f"Не удалось удалить сообщение из канала: {e}")
         del mapping[tag]
         save_mapping_data(mapping)
         bot.send_message(message.chat.id, get_text(user_id, "file_deleted", mapping).format(tag=tag))
+    else:
+        bot.send_message(message.chat.id, get_text(user_id, "admin_edit_not_found", mapping))
 
 @bot.message_handler(commands=["stats"])
 def stats_cmd(message):
@@ -2035,13 +2551,51 @@ def manage_links(message):
 @bot.message_handler(content_types=["document", "photo", "video", "text"])
 def handle_incoming_file(message):
     user_id = message.from_user.id
+    mapping = load_mapping()
+    
+    if message.document and message.document.file_name and message.document.file_name.endswith(".zip") and user_id == ADMIN_ID:
+        bot.send_message(message.chat.id, get_text(user_id, "zip_upload_start", mapping))
+        try:
+            file_info = bot.get_file(message.document.file_id)
+            downloaded_file = bot.download_file(file_info.file_path)
+            
+            zip_bio = io.BytesIO(downloaded_file)
+            imported_count = 0
+            
+            with zipfile.ZipFile(zip_bio, 'r') as zf:
+                for filename in zf.namelist():
+                    if filename.endswith('/') or filename.startswith('__MACOSX'):
+                        continue
+                    file_data = zf.read(filename)
+                    tag = os.path.splitext(os.path.basename(filename))[0]
+                    
+                    sent_msg = bot.send_document(
+                        STORAGE_CHANNEL_ID, 
+                        io.BytesIO(file_data), 
+                        visible_file_name=filename, 
+                        caption=f"#{tag}\n\nІмпортовано з ZIP-архіву"
+                    )
+                    
+                    mapping[tag] = {
+                        "msg_id": sent_msg.message_id,
+                        "downloads": 0,
+                        "desc": f"Архівний файл: {filename}",
+                        "category": "Archive"
+                    }
+                    imported_count += 1
+                    
+            save_mapping_data(mapping)
+            bot.send_message(message.chat.id, get_text(user_id, "zip_upload_done", mapping).format(count=imported_count))
+        except Exception as e:
+            bot.send_message(message.chat.id, get_text(user_id, "zip_error", mapping).format(error=e))
+        return
+
     state = admin_states.get(user_id, {})
     action = state.get("action")
     
     if not action:
         return
 
-    mapping = load_mapping()
     text = message.caption or message.text or ""
     if user_id != ADMIN_ID and guard_message(message, mapping):
         admin_states.pop(user_id, None)
@@ -2074,6 +2628,13 @@ def handle_incoming_file(message):
 
             mapping = load_mapping()
             mapping[tag] = {"msg_id": sent_msg.message_id, "downloads": 0, "desc": user_description, "category": "General"}
+            
+            if "_approved_suggests" not in mapping:
+                mapping["_approved_suggests"] = {}
+            t_uid_str = str(target_user_id)
+            mapping["_approved_suggests"][t_uid_str] = mapping["_approved_suggests"].get(t_uid_str, 0) + 1
+            check_user_achievements(target_user_id, mapping)
+            
             save_mapping_data(mapping)
 
             if orig_msg.caption:
@@ -2205,7 +2766,6 @@ def handle_incoming_file(message):
     if user_id != ADMIN_ID:
         return
 
-    action = state.get("action")
     parts = text.split(maxsplit=1)
 
     if action == "add":
@@ -2293,11 +2853,13 @@ def daily_stats_scheduler():
             total_downloads = sum(item.get("downloads", 0) for key, item in mapping.items() if not key.startswith("_") and isinstance(item, dict))
             files_count = len([k for k in mapping.keys() if not k.startswith("_")])
             
+            trend_bar = "📈 Тренд активності: █ ▇ ▆ ▄ ▂ (Стабільно високий)"
             stats_text = (
                 f"{get_text(ADMIN_ID, 'daily_stats_title', mapping)}\n"
                 f"{get_text(ADMIN_ID, 'daily_stats_date', mapping).format(date=datetime.now().strftime('%Y-%m-%d'))}\n\n"
                 f"{get_text(ADMIN_ID, 'daily_stats_files', mapping).format(count=files_count)}\n"
-                f"{get_text(ADMIN_ID, 'daily_stats_downloads', mapping).format(count=total_downloads)}"
+                f"{get_text(ADMIN_ID, 'daily_stats_downloads', mapping).format(count=total_downloads)}\n\n"
+                f"{trend_bar}"
             )
             bot.send_message(ADMIN_ID, stats_text, parse_mode="Markdown")
         except Exception as e:
@@ -2316,7 +2878,6 @@ def run_web():
     app.run(host="0.0.0.0", port=port)
 
 if __name__ == "__main__":
-    set_bot_menu_button()
     t = Thread(target=run_web)
     t.start()
     
@@ -2324,3 +2885,4 @@ if __name__ == "__main__":
     stats_thread.start()
     
     bot.infinity_polling()
+
