@@ -17,13 +17,13 @@ from flask import Flask
 # ==========================================
 # ⚙️ ОСНОВНЫЕ НАСТРОЙКИ И ПЕРЕМЕННЫЕ
 # ==========================================
-TOKEN = "8847975926:AAFHH_h_kmPRbBBMpIzICJ25mIG5ZoYatbE"
+TOKEN = "8847975926:AAGmgUiKAfGfEIOBRJ415JwcYvhaq7n5atA"
 ADMIN_ID = 6795794125
 STORAGE_CHANNEL_ID = -1003931200359
 FEEDBACK_BOT_URL = "https://t.me/feedbackls_bot"
 VT_API_KEY = "fa5af0a32f4aa92be1536149bcf01321aaab83104c67ff7e50c37ff5fa64dcc8"
 
-# Ссылка на сайт (кнопки на файлах убраны по вашему запросу)
+# Ссылка на сайт
 SITE_URL = "https://popka22867.github.io/Adapter/"
 
 START_TIME = datetime(2026, 10, 25, 16, 33, 52).timestamp()
@@ -979,7 +979,7 @@ LANGS = {
         "title_rate_25": "主任査察官",
         "title_sug_1": "ヘルパー",
         "title_sug_5": "神ファイル提供者",
-        "title_sug_15": "チャンネルのパトロン",
+        "title_sug_15": "チャンネルのパطロン",
         "title_admin_god": "👑 ヘッドアドミン",
         "desc_dl_1": "1 DL",
         "desc_dl_5": "5 DL",
@@ -1007,7 +1007,7 @@ LANGS = {
         "desc_sug_1": "承認1件",
         "desc_sug_5": "承認5件",
         "desc_sug_15": "承認15件",
-        "desc_admin_god": "特別管理者ステータス"
+        "desc_admin_god": "特別管理者ステータс"
     }
 }
 
@@ -2102,11 +2102,12 @@ def handle_callback_query(call):
         t_reason = get_text(user.id, "report_reason", mapping)
         t_user = get_text(user.id, "report_user", mapping)
 
+        safe_name = (user.first_name or "User").replace("[", "(").replace("]", ")")
         report_text = (
             f"{t_title}\n\n"
             f"{t_tag}: `{file_key}`\n"
             f"{t_reason}: {reason_desc}\n"
-            f"{t_user}: [{user.first_name}](tg://user?id={user.id}) (ID: `{user.id}`)"
+            f"{t_user}: {safe_name} (ID: `{user.id}`)"
         )
         bot.send_message(ADMIN_ID, report_text, parse_mode="Markdown")
         bot.answer_callback_query(call.id, get_text(user.id, "report_success", mapping), show_alert=True)
@@ -2677,9 +2678,9 @@ def handle_incoming_file(message):
 
         tag = parts[0].strip()
         user_description = parts[1] if len(parts) > 1 else ""
-        user_name = message.from_user.first_name
+        user_name = (message.from_user.first_name or "User").replace("[", "(").replace("]", ")")
         
-        forward_caption = f"#{tag}\n\n{user_description}\n\n{get_text(ADMIN_ID, 'suggested_by', mapping)} [{user_name}](tg://user?id={user_id})"
+        forward_caption = f"#{tag}\n\n{user_description}\n\n{get_text(ADMIN_ID, 'suggested_by', mapping)} {user_name} (ID: `{user_id}`)"
         
         markup = InlineKeyboardMarkup(row_width=2)
         markup.add(
@@ -2885,4 +2886,3 @@ if __name__ == "__main__":
     stats_thread.start()
     
     bot.infinity_polling()
-
