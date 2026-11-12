@@ -1,3 +1,5 @@
 pytelegrambotapi
 flask
 qrcode
+pillow
+
